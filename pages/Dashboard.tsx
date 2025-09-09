@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { getVehicles, getReservations } from '../services/api';
 import { Reservation, Vehicle, Page } from '../types';
-// FIX: Imported Tooltip from recharts
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
-import { Car, Users, CalendarCheck, AlertTriangle, Link, Clock } from 'lucide-react';
+import { Users, CalendarCheck, AlertTriangle, Link, Clock } from 'lucide-react';
 import ReservationDetailModal from '../components/ReservationDetailModal';
 import SelfServiceModal from '../components/SelfServiceModal';
 
@@ -55,7 +54,6 @@ const Dashboard: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setCurr
     });
 
     const activeAndReturningReservations = reservations.filter(r => r.status === 'active');
-    const pendingCustomerReservations = reservations.filter(r => r.status === 'pending-customer');
     const maintenanceVehicles = vehicles.filter(v => v.status === 'maintenance');
 
     const handleOpenDetailModal = (reservation: Reservation) => {
@@ -129,20 +127,7 @@ const Dashboard: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setCurr
             </div>
             
             {/* Action Center */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                     <h2 className="text-xl font-bold text-gray-700 mb-4">Čeká na údaje od zákazníka</h2>
-                     {pendingCustomerReservations.length > 0 ? (
-                        <ul className="space-y-3">
-                           {pendingCustomerReservations.map(res => (
-                               <li key={res.id} className="p-3 bg-blue-50 rounded-md">
-                                 <p className="font-semibold">{res.vehicle?.name}</p>
-                                 <p className="text-sm text-blue-700">Odkaz byl vygenerován. Čeká se na vyplnění.</p>
-                               </li>
-                           ))}
-                        </ul>
-                     ) : <p className="text-gray-500">Žádné čekající rezervace.</p>}
-                </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="bg-white p-6 rounded-lg shadow-md">
                     <h2 className="text-xl font-bold text-gray-700 mb-4">Dnešní odjezdy</h2>
                      {todaysDepartures.length > 0 ? (

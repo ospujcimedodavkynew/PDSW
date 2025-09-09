@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
-import { getVehicles, getCustomers, addCustomer, addReservation } from '../services/api';
+import { getVehicles, getCustomers, addCustomer, addReservation, addContract } from '../services/api';
 import type { Reservation, Vehicle, Customer } from '../types';
 import { UserPlus, Car, Calendar as CalendarIcon, Clock, Signature } from 'lucide-react';
 
@@ -211,14 +211,14 @@ const Reservations: React.FC = () => {
                 throw new Error("Nepodařilo se nalézt data zákazníka.");
             }
 
-            await addReservation({
+            const newReservation = await addReservation({
                 customerId: finalCustomerId,
                 vehicleId: selectedVehicleId,
                 startDate: new Date(startDate),
                 endDate: new Date(endDate),
             });
 
-            // Generate contract and mailto link
+            // Generate contract text
             const contractText = `
 SMLOUVA O NÁJMU DOPRAVNÍHO PROSTŘEDKU
 =========================================
@@ -265,7 +265,16 @@ V případě poškození vozidla zaviněného nájemcem se sjednává spoluúča
 -----------------------------------------
 Tato smlouva je vyhotovena elektronicky. Nájemce svým digitálním podpisem stvrzuje, že se seznámil s obsahem smlouvy, souhlasí s ním a vozidlo v uvedeném stavu přebírá.
             `;
+            
+            // Save contract to database
+            await addContract({
+                reservationId: newReservation.id,
+                customerId: finalCustomerId,
+                vehicleId: selectedVehicleId,
+                contractText: contractText
+            });
 
+            // Prepare mailto link
             const mailtoBody = encodeURIComponent(contractText);
             const mailtoLink = `mailto:${customerForContract.email}?subject=${encodeURIComponent(`Smlouva o pronájmu vozidla ${selectedVehicle?.name}`)}&body=${mailtoBody}`;
             
