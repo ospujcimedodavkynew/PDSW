@@ -1,30 +1,48 @@
 import React, { useState, useEffect, FormEvent } from 'react';
 import type { Customer } from '../types';
 import { X } from 'lucide-react';
+import { addCustomer, updateCustomer } from '../services/api';
 
 interface CustomerFormModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSave: (customer: Customer | Omit<Customer, 'id'>) => void;
+    onSaveSuccess: () => void;
     customer: Partial<Customer> | null;
 }
 
-const CustomerFormModal: React.FC<CustomerFormModalProps> = ({ isOpen, onClose, onSave, customer }) => {
-    const [formData, setFormData] = useState<Partial<Customer>>({
+const CustomerFormModal: React.FC<CustomerFormModalProps> = ({ isOpen, onClose, onSaveSuccess, customer }) => {
+    const getInitialData = (c: Partial<Customer> | null): Partial<Customer> => c || {
         firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: ''
-    });
+    };
+
+    const [formData, setFormData] = useState<Partial<Customer>>(getInitialData(customer));
+    const [isSaving, setIsSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        if (customer) {
-            setFormData(customer);
-        } else {
-            setFormData({ firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: '' });
+        if (isOpen) {
+            setFormData(getInitialData(customer));
+            setError(null);
         }
-    }, [customer]);
+    }, [customer, isOpen]);
 
-    const handleSubmit = (e: FormEvent) => {
+    const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
-        onSave(formData as Customer | Omit<Customer, 'id'>);
+        setIsSaving(true);
+        setError(null);
+        try {
+            if (formData.id) {
+                await updateCustomer(formData as Customer);
+            } else {
+                await addCustomer(formData as Omit<Customer, 'id'>);
+            }
+            onSaveSuccess();
+        } catch (err) {
+            console.error("Failed to save customer:", err);
+            setError(err instanceof Error ? err.message : 'Uložení zákazníka se nezdařilo');
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     if (!isOpen) return null;
@@ -47,9 +65,19 @@ const CustomerFormModal: React.FC<CustomerFormModalProps> = ({ isOpen, onClose, 
                         <input type="tel" placeholder="Telefon" value={formData.phone || ''} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="w-full p-2 border rounded" required />
                         <input type="text" placeholder="Číslo ŘP" value={formData.driverLicenseNumber || ''} onChange={e => setFormData({ ...formData, driverLicenseNumber: e.target.value })} className="w-full p-2 border rounded" required />
                     </div>
-                    <div className="flex justify-end space-x-3 mt-6">
+
+                    {error && (
+                        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+                            <strong className="font-bold">Chyba: </strong>
+                            <span className="block sm:inline">{error}</span>
+                        </div>
+                    )}
+                    
+                    <div className="flex justify-end space-x-3 pt-2">
                         <button type="button" onClick={onClose} className="py-2 px-4 rounded-lg bg-gray-200 hover:bg-gray-300">Zrušit</button>
-                        <button type="submit" className="py-2 px-4 rounded-lg bg-primary text-white hover:bg-primary-hover">Uložit</button>
+                        <button type="submit" disabled={isSaving} className="py-2 px-4 rounded-lg bg-primary text-white hover:bg-primary-hover disabled:bg-gray-400">
+                            {isSaving ? 'Ukládám...' : 'Uložit'}
+                        </button>
                     </div>
                 </form>
             </div>

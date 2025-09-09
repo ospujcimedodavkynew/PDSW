@@ -42,23 +42,54 @@ const VehicleFormModal: React.FC<{
     onSave: () => void;
     vehicle: Partial<Vehicle> | null;
 }> = ({ isOpen, onClose, onSave, vehicle }) => {
-    const [formData, setFormData] = useState<Partial<Vehicle>>({});
+    const getInitialData = (v: Partial<Vehicle> | null): Partial<Vehicle> => v || {
+        name: '',
+        make: '',
+        model: '',
+        year: new Date().getFullYear(),
+        licensePlate: '',
+        status: 'available',
+        rate4h: 0,
+        rate12h: 0,
+        dailyRate: 0,
+        features: [],
+    };
+    
+    const [formData, setFormData] = useState<Partial<Vehicle>>(getInitialData(vehicle));
+    const [isSaving, setIsSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
 
     useEffect(() => {
-        setFormData(vehicle || { status: 'available', features: [] });
-    }, [vehicle]);
+        if (isOpen) {
+            setFormData(getInitialData(vehicle));
+            setError(null);
+        }
+    }, [vehicle, isOpen]);
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
+        setError(null);
+        setIsSaving(true);
+        
+        if (!formData.name || !formData.licensePlate) {
+            setError("Název a SPZ jsou povinné.");
+            setIsSaving(false);
+            return;
+        }
+
         try {
             if (formData.id) {
                 await updateVehicle(formData as Vehicle);
             } else {
-                await addVehicle(formData as Omit<Vehicle, 'id'>);
+                await addVehicle(formData as Omit<Vehicle, 'id' | 'imageUrl'>);
             }
             onSave();
-        } catch (error) {
-            console.error("Failed to save vehicle", error);
+        } catch (err) {
+            console.error("Failed to save vehicle", err);
+            setError(err instanceof Error ? err.message : 'Uložení vozidla se nezdařilo');
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -84,9 +115,9 @@ const VehicleFormModal: React.FC<{
                     <div>
                          <label className="block text-sm font-medium text-gray-700 mb-1">Ceny pronájmu</label>
                          <div className="grid grid-cols-3 gap-4">
-                            <input type="number" placeholder="Cena / 4 hod" value={formData.rate4h || ''} onChange={e => setFormData({ ...formData, rate4h: parseInt(e.target.value) || 0 })} className="w-full p-2 border rounded" required />
-                            <input type="number" placeholder="Cena / 12 hod" value={formData.rate12h || ''} onChange={e => setFormData({ ...formData, rate12h: parseInt(e.target.value) || 0 })} className="w-full p-2 border rounded" required />
-                            <input type="number" placeholder="Cena / den (24h+)" value={formData.dailyRate || ''} onChange={e => setFormData({ ...formData, dailyRate: parseInt(e.target.value) || 0 })} className="w-full p-2 border rounded" required />
+                            <input type="number" placeholder="Cena / 4 hod" value={formData.rate4h || 0} onChange={e => setFormData({ ...formData, rate4h: parseInt(e.target.value) || 0 })} className="w-full p-2 border rounded" required />
+                            <input type="number" placeholder="Cena / 12 hod" value={formData.rate12h || 0} onChange={e => setFormData({ ...formData, rate12h: parseInt(e.target.value) || 0 })} className="w-full p-2 border rounded" required />
+                            <input type="number" placeholder="Cena / den (24h+)" value={formData.dailyRate || 0} onChange={e => setFormData({ ...formData, dailyRate: parseInt(e.target.value) || 0 })} className="w-full p-2 border rounded" required />
                         </div>
                     </div>
                      <div>
@@ -97,9 +128,19 @@ const VehicleFormModal: React.FC<{
                             <option value="maintenance">V servisu</option>
                         </select>
                     </div>
-                    <div className="flex justify-end space-x-3 mt-6">
+
+                    {error && (
+                        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+                            <strong className="font-bold">Chyba: </strong>
+                            <span className="block sm:inline">{error}</span>
+                        </div>
+                    )}
+
+                    <div className="flex justify-end space-x-3 pt-2">
                         <button type="button" onClick={onClose} className="py-2 px-4 rounded-lg bg-gray-200 hover:bg-gray-300">Zrušit</button>
-                        <button type="submit" className="py-2 px-4 rounded-lg bg-primary text-white hover:bg-primary-hover">Uložit</button>
+                        <button type="submit" disabled={isSaving} className="py-2 px-4 rounded-lg bg-primary text-white hover:bg-primary-hover disabled:bg-gray-400">
+                            {isSaving ? 'Ukládám...' : 'Uložit'}
+                        </button>
                     </div>
                 </form>
             </div>

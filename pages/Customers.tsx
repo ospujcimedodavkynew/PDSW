@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getCustomers, addCustomer, updateCustomer } from '../services/api';
+import { getCustomers } from '../services/api';
 import type { Customer } from '../types';
 import { Plus, User, Mail, Phone, Edit, MapPin } from 'lucide-react';
 import CustomerFormModal from '../components/CustomerFormModal';
@@ -14,7 +14,6 @@ const CustomerCard: React.FC<{ customer: Customer; onEdit: (customer: Customer) 
                     </div>
                     <div>
                         <h3 className="text-lg font-bold text-gray-800">{customer.firstName} {customer.lastName}</h3>
-                        <p className="text-sm text-gray-500">ID: {customer.id}</p>
                     </div>
                 </div>
                 <div className="space-y-2 text-sm">
@@ -39,7 +38,6 @@ const Customers: React.FC = () => {
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
 
     const fetchCustomers = async () => {
-        setLoading(true);
         try {
             const data = await getCustomers();
             setCustomers(data);
@@ -51,6 +49,7 @@ const Customers: React.FC = () => {
     };
 
     useEffect(() => {
+        setLoading(true);
         fetchCustomers();
     }, []);
     
@@ -64,19 +63,11 @@ const Customers: React.FC = () => {
         setSelectedCustomer(null);
     };
 
-    const handleSave = async (customerData: Customer | Omit<Customer, 'id'>) => {
-        try {
-            if ('id' in customerData && customerData.id) {
-                await updateCustomer(customerData as Customer);
-            } else {
-                await addCustomer(customerData as Omit<Customer, 'id'>);
-            }
-            fetchCustomers();
-            handleCloseModal();
-        } catch (error) {
-            console.error("Failed to save customer:", error);
-        }
+    const handleSaveSuccess = () => {
+        handleCloseModal();
+        fetchCustomers();
     };
+
 
     if (loading) return <div>Načítání zákazníků...</div>;
 
@@ -85,7 +76,7 @@ const Customers: React.FC = () => {
              <CustomerFormModal 
                 isOpen={isModalOpen} 
                 onClose={handleCloseModal} 
-                onSave={handleSave} 
+                onSaveSuccess={handleSaveSuccess} 
                 customer={selectedCustomer} 
              />
             <div className="flex justify-between items-center mb-6">
@@ -95,7 +86,7 @@ const Customers: React.FC = () => {
                     Přidat zákazníka
                 </button>
             </div>
-             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {customers.map(customer => (
                     <CustomerCard key={customer.id} customer={customer} onEdit={handleOpenModal} />
                 ))}
