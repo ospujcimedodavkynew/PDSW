@@ -32,90 +32,121 @@ const handleSupabaseError = (error: any, context: string) => {
     }
 };
 
+// --- Mappers for data consistency ---
+
+const toVehicle = (dbVehicle: any): Vehicle => ({
+    id: dbVehicle.id,
+    name: dbVehicle.name,
+    make: dbVehicle.make,
+    model: dbVehicle.model,
+    year: dbVehicle.year,
+    licensePlate: dbVehicle.license_plate,
+    status: dbVehicle.status,
+    imageUrl: dbVehicle.image_url,
+    rate4h: dbVehicle.rate4h,
+    rate12h: dbVehicle.rate12h,
+    dailyRate: dbVehicle.daily_rate,
+    features: dbVehicle.features || [],
+});
+
+const fromVehicle = (vehicle: Partial<Vehicle>) => ({
+    name: vehicle.name,
+    make: vehicle.make,
+    model: vehicle.model,
+    year: vehicle.year,
+    license_plate: vehicle.licensePlate,
+    status: vehicle.status,
+    rate4h: vehicle.rate4h,
+    rate12h: vehicle.rate12h,
+    daily_rate: vehicle.dailyRate,
+    features: vehicle.features,
+    image_url: vehicle.imageUrl,
+});
+
+const toCustomer = (dbCustomer: any): Customer => ({
+    id: dbCustomer.id,
+    firstName: dbCustomer.first_name,
+    lastName: dbCustomer.last_name,
+    email: dbCustomer.email,
+    phone: dbCustomer.phone,
+    driverLicenseNumber: dbCustomer.driver_license_number,
+    address: dbCustomer.address,
+    driverLicenseImageUrl: dbCustomer.driver_license_image_url,
+});
+
+const fromCustomer = (customer: Partial<Customer>) => ({
+    first_name: customer.firstName,
+    last_name: customer.lastName,
+    email: customer.email,
+    phone: customer.phone,
+    driver_license_number: customer.driverLicenseNumber,
+    address: customer.address,
+    driver_license_image_url: customer.driverLicenseImageUrl,
+});
+
+const toReservation = (dbReservation: any): Reservation => ({
+    id: dbReservation.id,
+    customerId: dbReservation.customer_id,
+    vehicleId: dbReservation.vehicle_id,
+    startDate: dbReservation.start_date ? new Date(dbReservation.start_date) : undefined,
+    endDate: dbReservation.end_date ? new Date(dbReservation.end_date) : undefined,
+    status: dbReservation.status,
+    portalToken: dbReservation.portal_token,
+    notes: dbReservation.notes,
+    customer: dbReservation.customers ? toCustomer(dbReservation.customers) : (dbReservation.customer ? toCustomer(dbReservation.customer) : undefined),
+    vehicle: dbReservation.vehicles ? toVehicle(dbReservation.vehicles) : (dbReservation.vehicle ? toVehicle(dbReservation.vehicle) : undefined),
+});
+
+
 // Vehicle API
 export const getVehicles = async (): Promise<Vehicle[]> => {
     const { data, error } = await getClient().from('vehicles').select('*').order('name');
     handleSupabaseError(error, 'getVehicles');
-    return (data || []).map(v => ({...v, year: v.year || 0, rate4h: v.rate4h || 0, rate12h: v.rate12h || 0, dailyRate: v.daily_rate || 0, licensePlate: v.license_plate, imageUrl: v.image_url}));
+    return (data || []).map(toVehicle);
 };
 
 export const addVehicle = async (vehicleData: Omit<Vehicle, 'id' | 'imageUrl'>): Promise<Vehicle> => {
+    const dbData = fromVehicle(vehicleData);
+    dbData.image_url = `https://placehold.co/600x400/e2e8f0/475569?text=${encodeURIComponent(vehicleData.name)}`;
+    
     const { data, error } = await getClient()
         .from('vehicles')
-        .insert({
-            name: vehicleData.name,
-            make: vehicleData.make,
-            model: vehicleData.model,
-            year: vehicleData.year,
-            license_plate: vehicleData.licensePlate,
-            status: vehicleData.status,
-            rate4h: vehicleData.rate4h,
-            rate12h: vehicleData.rate12h,
-            daily_rate: vehicleData.dailyRate,
-            features: vehicleData.features,
-            image_url: `https://placehold.co/600x400/e2e8f0/475569?text=${encodeURIComponent(vehicleData.name)}`
-        })
+        .insert(dbData)
         .select()
         .single();
     handleSupabaseError(error, 'addVehicle');
-    return {...data, year: data.year || 0, rate4h: data.rate4h || 0, rate12h: data.rate12h || 0, dailyRate: data.daily_rate || 0, licensePlate: data.license_plate, imageUrl: data.image_url};
+    return toVehicle(data);
 };
 
 export const updateVehicle = async (updatedVehicle: Vehicle): Promise<Vehicle> => {
+    const dbData = fromVehicle(updatedVehicle);
     const { data, error } = await getClient()
         .from('vehicles')
-        .update({
-            name: updatedVehicle.name,
-            make: updatedVehicle.make,
-            model: updatedVehicle.model,
-            year: updatedVehicle.year,
-            license_plate: updatedVehicle.licensePlate,
-            status: updatedVehicle.status,
-            rate4h: updatedVehicle.rate4h,
-            rate12h: updatedVehicle.rate12h,
-            daily_rate: updatedVehicle.dailyRate,
-            features: updatedVehicle.features,
-            image_url: updatedVehicle.imageUrl,
-        })
+        .update(dbData)
         .eq('id', updatedVehicle.id)
         .select()
         .single();
     handleSupabaseError(error, 'updateVehicle');
-    return {...data, year: data.year || 0, rate4h: data.rate4h || 0, rate12h: data.rate12h || 0, dailyRate: data.daily_rate || 0, licensePlate: data.license_plate, imageUrl: data.image_url};
+    return toVehicle(data);
 };
 
 // Customer API
 export const getCustomers = async (): Promise<Customer[]> => {
     const { data, error } = await getClient().from('customers').select('*').order('last_name');
     handleSupabaseError(error, 'getCustomers');
-    return (data || []).map(c => ({...c, firstName: c.first_name, lastName: c.last_name, driverLicenseNumber: c.driver_license_number, driverLicenseImageUrl: c.driver_license_image_url}));
+    return (data || []).map(toCustomer);
 };
 
 export const addCustomer = async (customerData: Omit<Customer, 'id'>): Promise<Customer> => {
-    const { data, error } = await getClient().from('customers').insert({
-        first_name: customerData.firstName,
-        last_name: customerData.lastName,
-        email: customerData.email,
-        phone: customerData.phone,
-        driver_license_number: customerData.driverLicenseNumber,
-        address: customerData.address,
-        driver_license_image_url: customerData.driverLicenseImageUrl,
-    }).select().single();
+    const { data, error } = await getClient().from('customers').insert(fromCustomer(customerData)).select().single();
     handleSupabaseError(error, 'addCustomer');
-    return {...data, firstName: data.first_name, lastName: data.last_name, driverLicenseNumber: data.driver_license_number, driverLicenseImageUrl: data.driver_license_image_url};
+    return toCustomer(data);
 };
 
 export const updateCustomer = async (updatedCustomer: Customer): Promise<Customer> => {
-    const { data, error } = await getClient().from('customers').update({
-        first_name: updatedCustomer.firstName,
-        last_name: updatedCustomer.lastName,
-        email: updatedCustomer.email,
-        phone: updatedCustomer.phone,
-        driver_license_number: updatedCustomer.driverLicenseNumber,
-        address: updatedCustomer.address,
-    }).eq('id', updatedCustomer.id).select().single();
+    const { data, error } = await getClient().from('customers').update(fromCustomer(updatedCustomer)).eq('id', updatedCustomer.id).select().single();
     handleSupabaseError(error, 'updateCustomer');
-    return {...data, firstName: data.first_name, lastName: data.last_name, driverLicenseNumber: data.driver_license_number, driverLicenseImageUrl: data.driver_license_image_url};
+    return toCustomer(data);
 };
 
 // Reservation API
@@ -124,23 +155,13 @@ export const getReservations = async (): Promise<Reservation[]> => {
         .from('reservations')
         .select('*, customer:customers(*), vehicle:vehicles(*)');
     handleSupabaseError(error, 'getReservations');
-    
-    // Map database snake_case to camelCase and parse dates
-    return (data || []).map(r => ({
-        id: r.id,
-        customerId: r.customer_id,
-        vehicleId: r.vehicle_id,
-        startDate: new Date(r.start_date),
-        endDate: new Date(r.end_date),
-        status: r.status,
-        portalToken: r.portal_token,
-        notes: r.notes,
-        customer: r.customer ? {...r.customer, firstName: r.customer.first_name, lastName: r.customer.last_name, driverLicenseNumber: r.customer.driver_license_number, driverLicenseImageUrl: r.customer.driver_license_image_url} : undefined,
-        vehicle: r.vehicle ? {...r.vehicle, dailyRate: r.vehicle.daily_rate, licensePlate: r.vehicle.license_plate, imageUrl: r.vehicle.image_url} : undefined,
-    }));
+    return (data || []).map(toReservation);
 };
 
 export const addReservation = async (reservationData: Omit<Reservation, 'id' | 'status'>): Promise<Reservation> => {
+    if (!reservationData.startDate || !reservationData.endDate) {
+        throw new Error("Start date and end date are required for a standard reservation.");
+    }
     const { data, error } = await getClient().from('reservations').insert({ 
         customer_id: reservationData.customerId,
         vehicle_id: reservationData.vehicleId,
@@ -149,7 +170,7 @@ export const addReservation = async (reservationData: Omit<Reservation, 'id' | '
         status: 'scheduled' 
     }).select().single();
     handleSupabaseError(error, 'addReservation');
-    return {...data, customerId: data.customer_id, vehicleId: data.vehicle_id, startDate: new Date(data.start_date), endDate: new Date(data.end_date), portalToken: data.portal_token };
+    return toReservation(data);
 };
 
 export const activateReservation = async (reservationId: string): Promise<Reservation> => {
@@ -167,7 +188,7 @@ export const activateReservation = async (reservationId: string): Promise<Reserv
         .eq('id', reservation.vehicle_id);
     handleSupabaseError(vehicleError, 'activateReservation - update vehicle');
     
-    return {...reservation, customerId: reservation.customer_id, vehicleId: reservation.vehicle_id, startDate: new Date(reservation.start_date), endDate: new Date(reservation.end_date), portalToken: reservation.portal_token };
+    return toReservation(reservation);
 };
 
 export const completeReservation = async (reservationId: string, notes: string): Promise<Reservation> => {
@@ -185,7 +206,7 @@ export const completeReservation = async (reservationId: string, notes: string):
         .eq('id', reservation.vehicle_id);
     handleSupabaseError(vehicleError, 'completeReservation - update vehicle');
     
-    return {...reservation, customerId: reservation.customer_id, vehicleId: reservation.vehicle_id, startDate: new Date(reservation.start_date), endDate: new Date(reservation.end_date), portalToken: reservation.portal_token };
+    return toReservation(reservation);
 };
 
 // Self-service API
@@ -197,12 +218,14 @@ export const createPendingReservation = async (vehicleId: string): Promise<Reser
             customer_id: null,
             vehicle_id: vehicleId,
             status: 'pending-customer',
-            portal_token: token
+            portal_token: token,
+            start_date: null,
+            end_date: null
         })
         .select()
         .single();
     handleSupabaseError(error, 'createPendingReservation');
-    return {...data, customerId: data.customer_id, vehicleId: data.vehicle_id, portalToken: data.portal_token };
+    return toReservation(data);
 };
 
 export const getReservationByToken = async (token: string): Promise<Reservation | undefined> => {
@@ -216,17 +239,7 @@ export const getReservationByToken = async (token: string): Promise<Reservation 
       handleSupabaseError(error, 'getReservationByToken');
     }
     if (!data) return undefined;
-    return {
-        id: data.id,
-        customerId: data.customer_id,
-        vehicleId: data.vehicle_id,
-        startDate: new Date(data.start_date),
-        endDate: new Date(data.end_date),
-        status: data.status,
-        portalToken: data.portal_token,
-        notes: data.notes,
-        vehicle: data.vehicle ? {...data.vehicle, dailyRate: data.vehicle.daily_rate, licensePlate: data.vehicle.license_plate, imageUrl: data.vehicle.image_url} : undefined,
-    };
+    return toReservation(data);
 }
 
 export const submitCustomerDetails = async (portalToken: string, customerData: Omit<Customer, 'id' | 'driverLicenseImageUrl'>, driverLicenseImage: File): Promise<Reservation> => {
@@ -243,17 +256,12 @@ export const submitCustomerDetails = async (portalToken: string, customerData: O
         .getPublicUrl(filePath);
 
     // 3. Vytvořit nového zákazníka s URL obrázku
+    const customerToInsert = fromCustomer(customerData);
+    customerToInsert.driver_license_image_url = publicUrl;
+
     const { data: newCustomer, error: customerError } = await getClient()
         .from('customers')
-        .insert({ 
-            first_name: customerData.firstName,
-            last_name: customerData.lastName,
-            email: customerData.email,
-            phone: customerData.phone,
-            driver_license_number: customerData.driverLicenseNumber,
-            address: customerData.address,
-            driver_license_image_url: publicUrl 
-        })
+        .insert(customerToInsert)
         .select()
         .single();
     handleSupabaseError(customerError, 'submitCustomerDetails - create customer');
@@ -264,15 +272,15 @@ export const submitCustomerDetails = async (portalToken: string, customerData: O
         .update({
             customer_id: newCustomer.id,
             status: 'scheduled',
-            start_date: new Date().toISOString(),
-            end_date: new Date(new Date().setDate(new Date().getDate() + 1)).toISOString()
+            start_date: new Date().toISOString(), // Default start date to now
+            end_date: new Date(new Date().setDate(new Date().getDate() + 1)).toISOString() // Default end date to 24h from now
         })
         .eq('portal_token', portalToken)
         .select()
         .single();
     handleSupabaseError(reservationError, 'submitCustomerDetails - update reservation');
 
-    return {...updatedReservation, customerId: updatedReservation.customer_id, vehicleId: updatedReservation.vehicle_id, startDate: new Date(updatedReservation.start_date), endDate: new Date(updatedReservation.end_date), portalToken: updatedReservation.portal_token };
+    return toReservation(updatedReservation);
 };
 
 // Zástupné funkce pro Smlouvy a Finance

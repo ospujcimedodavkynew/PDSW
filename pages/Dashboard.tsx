@@ -48,8 +48,13 @@ const Dashboard: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setCurr
     const tomorrow = new Date(today);
     tomorrow.setDate(today.getDate() + 1);
 
-    const todaysDepartures = reservations.filter(r => r.status === 'scheduled' && new Date(r.startDate) >= today && new Date(r.startDate) < tomorrow);
-    const todaysArrivals = reservations.filter(r => r.status === 'active' && new Date(r.endDate) >= today && new Date(r.endDate) < tomorrow);
+    const todaysDepartures = reservations.filter(r => {
+        if (r.status !== 'scheduled' || !r.startDate) return false;
+        const startDate = new Date(r.startDate);
+        return startDate >= today && startDate < tomorrow;
+    });
+
+    const activeAndReturningReservations = reservations.filter(r => r.status === 'active');
     const pendingCustomerReservations = reservations.filter(r => r.status === 'pending-customer');
     const maintenanceVehicles = vehicles.filter(v => v.status === 'maintenance');
 
@@ -146,7 +151,7 @@ const Dashboard: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setCurr
                                <li key={res.id} className="flex justify-between items-center p-3 bg-green-50 rounded-md">
                                  <div>
                                     <p className="font-semibold">{res.customer?.firstName} {res.customer?.lastName}</p>
-                                    <p className="text-sm text-gray-500">{res.vehicle?.name} - <Clock className="inline w-3 h-3 mr-1"/>{new Date(res.startDate).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}</p>
+                                    <p className="text-sm text-gray-500">{res.vehicle?.name} - <Clock className="inline w-3 h-3 mr-1"/>{res.startDate ? new Date(res.startDate).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' }) : 'N/A'}</p>
                                  </div>
                                  <button onClick={() => handleOpenDetailModal(res)} className="bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600 text-sm font-semibold">Vydat</button>
                                </li>
@@ -155,20 +160,20 @@ const Dashboard: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setCurr
                      ) : <p className="text-gray-500">Žádné plánované odjezdy.</p>}
                 </div>
                  <div className="bg-white p-6 rounded-lg shadow-md">
-                    <h2 className="text-xl font-bold text-gray-700 mb-4">Dnešní příjezdy</h2>
-                      {todaysArrivals.length > 0 ? (
+                    <h2 className="text-xl font-bold text-gray-700 mb-4">Aktivní a vracející se vozidla</h2>
+                      {activeAndReturningReservations.length > 0 ? (
                         <ul className="space-y-3">
-                           {todaysArrivals.map(res => (
+                           {activeAndReturningReservations.map(res => (
                                <li key={res.id} className="flex justify-between items-center p-3 bg-yellow-50 rounded-md">
                                   <div>
                                     <p className="font-semibold">{res.customer?.firstName} {res.customer?.lastName}</p>
-                                    <p className="text-sm text-gray-500">{res.vehicle?.name} - <Clock className="inline w-3 h-3 mr-1"/>{new Date(res.endDate).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}</p>
+                                    <p className="text-sm text-gray-500">{res.vehicle?.name} - <Clock className="inline w-3 h-3 mr-1"/>Předpokládaný návrat: {res.endDate ? new Date(res.endDate).toLocaleDateString('cs-CZ') : 'Není stanoveno'}</p>
                                   </div>
                                   <button onClick={() => handleOpenDetailModal(res)} className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm font-semibold">Převzít</button>
                                </li>
                            ))}
                         </ul>
-                     ) : <p className="text-gray-500">Žádné plánované příjezdy.</p>}
+                     ) : <p className="text-gray-500">Žádná aktivní nebo vracející se vozidla.</p>}
                 </div>
             </div>
         </div>

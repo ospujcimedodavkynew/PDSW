@@ -39,10 +39,10 @@ export interface Customer {
 // Represents a reservation
 export interface Reservation {
     id: string;
-    customerId: string;
+    customerId: string | null;
     vehicleId: string;
-    startDate: Date;
-    endDate: Date;
+    startDate?: Date;
+    endDate?: Date;
     status: 'pending-customer' | 'scheduled' | 'active' | 'completed';
     portalToken?: string;
     notes?: string;
