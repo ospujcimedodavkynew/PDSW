@@ -88,7 +88,7 @@ const CustomerPortal: React.FC<CustomerPortalProps> = ({ token }) => {
 
             // 2. Upload driver's license
             const filePath = `driver_licenses/${newCustomer.id}-${driverLicenseFile.name.replace(/\s/g, '_')}`;
-            const { publicUrl } = await uploadFile('public', filePath, driverLicenseFile);
+            const { publicUrl } = await uploadFile('licenses', filePath, driverLicenseFile);
 
             // 3. Update customer with license URL
             await updateCustomer({ ...newCustomer, driverLicenseImageUrl: publicUrl });
