@@ -1,22 +1,25 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Vehicle, Customer, Reservation, Contract, FinancialTransaction } from '../types';
 
-// V prostředí bez build-processu se proměnné prostředí často nenastavují přes import.meta.env.
-// Bezpečnější metodou je načíst je z globálního objektu window, kam je platforma
-// jako Vercel může vložit. Toto řeší chybu 'import.meta.env is undefined'.
-const supabaseUrl = (window as any).VITE_SUPABASE_URL;
-const supabaseAnonKey = (window as any).VITE_SUPABASE_ANON_KEY;
+// Načtení konfigurace z globálního objektu window, který je definován v index.html
+const env = (window as any).env || {};
+const supabaseUrl = env.VITE_SUPABASE_URL;
+const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY;
 
 
-// Exportujeme stav, aby UI mohlo reagovat a zobrazit chybovou hlášku
-export const areSupabaseCredentialsSet = !!(supabaseUrl && supabaseAnonKey);
+// Exportujeme stav, aby UI mohlo reagovat a zobrazit chybovou hlášku.
+// Kontrolujeme, zda hodnoty nejsou výchozí placeholdery.
+export const areSupabaseCredentialsSet = 
+    !!(supabaseUrl && supabaseAnonKey && 
+    !supabaseUrl.includes("vasedomena") && 
+    !supabaseAnonKey.includes("vas_anon_public_klic"));
 
 const supabase = areSupabaseCredentialsSet ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 // Helper, který zajistí, že nevoláme funkce, pokud není klient nakonfigurován
 const getClient = () => {
     if (!supabase) {
-        throw new Error("Supabase client is not initialized. This should be prevented by the UI check.");
+        throw new Error("Supabase client is not initialized. Check your environment variables in index.html.");
     }
     return supabase;
 }

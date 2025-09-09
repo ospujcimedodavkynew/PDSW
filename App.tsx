@@ -20,7 +20,7 @@ const ConfigError = () => (
                 Zdá se, že chybí klíčové údaje pro připojení k databázi (Supabase).
             </p>
             <p className="mt-4 text-sm text-gray-500">
-                Prosím, zkontrolujte, že jste správně nastavili proměnné <strong>VITE_SUPABASE_URL</strong> a <strong>VITE_SUPABASE_ANON_KEY</strong> v nastavení vašeho projektu na Vercel.
+                Prosím, otevřete soubor <strong>index.html</strong> a vložte vaše klíče VITE_SUPABASE_URL a VITE_SUPABASE_ANON_KEY.
             </p>
         </div>
     </div>
