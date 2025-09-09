@@ -1,358 +1,222 @@
-import React, { useEffect, useState, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
-import { getVehicles, getCustomers, addCustomer, addReservation } from '../services/api';
-import type { Reservation, Vehicle, Customer } from '../types';
-import { UserPlus, Car, Calendar as CalendarIcon, Clock, Signature } from 'lucide-react';
-
-// Signature Pad Component
-interface SignaturePadHandles {
-    getSignature: () => string;
-    clear: () => void;
-    isEmpty: () => boolean;
-}
-
-const SignaturePad = forwardRef<SignaturePadHandles>((props, ref) => {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const [isDrawing, setIsDrawing] = useState(false);
-    const [isEmpty, setIsEmpty] = useState(true);
-
-    const getContext = () => canvasRef.current?.getContext('2d');
-
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        if (canvas) {
-            const ctx = getContext();
-            if (ctx) {
-                ctx.strokeStyle = '#000';
-                ctx.lineWidth = 2;
-                ctx.lineCap = 'round';
-            }
-        }
-    }, []);
-    
-    const getCoords = (e: React.MouseEvent | React.TouchEvent): { x: number, y: number } => {
-        const canvas = canvasRef.current;
-        if (!canvas) return { x: 0, y: 0 };
-        const rect = canvas.getBoundingClientRect();
-        if ('touches' in e.nativeEvent) {
-             return { x: e.nativeEvent.touches[0].clientX - rect.left, y: e.nativeEvent.touches[0].clientY - rect.top };
-        }
-        return { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY };
-    }
-
-    const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
-        const ctx = getContext();
-        if (ctx) {
-            const { x, y } = getCoords(e);
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-            setIsDrawing(true);
-            setIsEmpty(false);
-        }
-    };
-
-    const draw = (e: React.MouseEvent | React.TouchEvent) => {
-        if (!isDrawing) return;
-        const ctx = getContext();
-        if (ctx) {
-            const { x, y } = getCoords(e);
-            ctx.lineTo(x, y);
-            ctx.stroke();
-        }
-    };
-
-    const stopDrawing = () => {
-        const ctx = getContext();
-        if (ctx) {
-            ctx.closePath();
-            setIsDrawing(false);
-        }
-    };
-
-    const clear = () => {
-        const ctx = getContext();
-        const canvas = canvasRef.current;
-        if (ctx && canvas) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            setIsEmpty(true);
-        }
-    };
-
-    useImperativeHandle(ref, () => ({
-        getSignature: () => {
-            if (isEmpty || !canvasRef.current) return '';
-            return canvasRef.current.toDataURL('image/png');
-        },
-        clear,
-        isEmpty: () => isEmpty,
-    }));
-
-    return (
-        <div>
-            <canvas
-                ref={canvasRef}
-                width="400"
-                height="150"
-                className="border border-gray-400 rounded-md bg-white cursor-crosshair"
-                onMouseDown={startDrawing}
-                onMouseMove={draw}
-                onMouseUp={stopDrawing}
-                onMouseLeave={stopDrawing}
-                onTouchStart={startDrawing}
-                onTouchMove={draw}
-                onTouchEnd={stopDrawing}
-            />
-            <button type="button" onClick={clear} className="text-sm mt-2 text-blue-600 hover:underline">
-                Vymazat podpis
-            </button>
-        </div>
-    );
-});
-
+import React, { useState, useEffect, useRef } from 'react';
+import { getCustomers, getVehicles, addCustomer, addReservation, addContract } from '../services/api';
+import type { Customer, Vehicle } from '../types';
+import { UserPlus, Car, Calendar, Pen, Mail } from 'lucide-react';
+import SignaturePad from '../components/SignaturePad';
+import type { SignaturePadRef } from '../components/SignaturePad';
 
 const Reservations: React.FC = () => {
-    // Data states
-    const [vehicles, setVehicles] = useState<Vehicle[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
+    const [vehicles, setVehicles] = useState<Vehicle[]>([]);
     const [loading, setLoading] = useState(true);
 
-    // Form states
     const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
-    const [isNewCustomer, setIsNewCustomer] = useState(false);
-    // FIX: Added 'address' to the initial state to match the Customer type.
-    const [newCustomerData, setNewCustomerData] = useState<Omit<Customer, 'id'>>({ firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: '' });
     const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
+    const [startDate, setStartDate] = useState<string>('');
+    const [endDate, setEndDate] = useState<string>('');
     
-    const signaturePadRef = useRef<SignaturePadHandles>(null);
+    const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
+    const [newCustomerData, setNewCustomerData] = useState({ firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: '' });
+    
+    const [isProcessing, setIsProcessing] = useState(false);
+    const signaturePadRef = useRef<SignaturePadRef>(null);
 
-    // Fetch initial data
-    useEffect(() => {
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                const [vehData, custData] = await Promise.all([getVehicles(), getCustomers()]);
-                setVehicles(vehData);
-                setCustomers(custData);
-            } catch (error) {
-                console.error("Failed to fetch data:", error);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchData();
-    }, []);
-
-    // Memoized calculations for performance
-    const selectedCustomer = useMemo(() => customers.find(c => c.id === selectedCustomerId), [customers, selectedCustomerId]);
-    const selectedVehicle = useMemo(() => vehicles.find(v => v.id === selectedVehicleId), [vehicles, selectedVehicleId]);
-    const availableVehicles = useMemo(() => vehicles.filter(v => v.status === 'available'), [vehicles]);
-
-    const totalPrice = useMemo(() => {
-        if (!selectedVehicle || !startDate || !endDate) return 0;
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        if (end <= start) return 0;
-
-        const durationHours = (end.getTime() - start.getTime()) / (1000 * 3600);
-        
-        if (durationHours <= 4) {
-            return selectedVehicle.rate4h;
-        }
-        if (durationHours <= 12) {
-            return selectedVehicle.rate12h;
-        }
-        // For 12+ hours, calculate based on days
-        const days = Math.ceil(durationHours / 24);
-        return days * selectedVehicle.dailyRate;
-    }, [selectedVehicle, startDate, endDate]);
-
-    // Handlers
-    const handleSetDuration = (hours: number) => {
-        if (!startDate) {
-            alert("Nejprve prosím vyberte počáteční datum a čas.");
-            return;
-        }
-        const start = new Date(startDate);
-        const end = new Date(start.getTime() + hours * 60 * 60 * 1000);
-        
-        const pad = (num: number) => num.toString().padStart(2, '0');
-        const formattedEnd = `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}`;
-        setEndDate(formattedEnd);
-    };
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        
-        let customerForContract: Customer | undefined = selectedCustomer;
-        
-        // Validation
-        if (!isNewCustomer && !selectedCustomerId) { alert("Vyberte prosím zákazníka."); return; }
-        // FIX: Added comprehensive check for all required new customer fields.
-        if (isNewCustomer && (!newCustomerData.firstName || !newCustomerData.lastName || !newCustomerData.email || !newCustomerData.address || !newCustomerData.phone || !newCustomerData.driverLicenseNumber)) { alert("Vyplňte prosím všechny povinné údaje o novém zákazníkovi."); return; }
-        if (!selectedVehicleId) { alert("Vyberte prosím vozidlo."); return; }
-        if (!startDate || !endDate) { alert("Vyberte prosím období pronájmu."); return; }
-        if (new Date(endDate) <= new Date(startDate)) { alert("Datum konce musí být po datu začátku."); return; }
-        if (signaturePadRef.current?.isEmpty()) { alert("Zákazník se musí podepsat."); return; }
-
+    const fetchData = async () => {
+        setLoading(true);
         try {
-            setLoading(true);
-            let finalCustomerId = selectedCustomerId;
-
-            if (isNewCustomer) {
-                const newCustomer = await addCustomer(newCustomerData);
-                finalCustomerId = newCustomer.id;
-                customerForContract = newCustomer;
-            } else {
-                 customerForContract = customers.find(c => c.id === finalCustomerId);
-            }
-
-            if (!customerForContract) {
-                throw new Error("Nepodařilo se nalézt data zákazníka.");
-            }
-
-            await addReservation({
-                customerId: finalCustomerId,
-                vehicleId: selectedVehicleId,
-                startDate: new Date(startDate),
-                endDate: new Date(endDate),
-            });
-
-            // Generate contract and mailto link
-            const contractText = `
-SMLOUVA O NÁJMU DOPRAVNÍHO PROSTŘEDKU
-=========================================
-
-Článek I. - Smluvní strany
------------------------------------------
-Pronajímatel:
-Milan Gula
-Ghegova 17, Brno, 60200
-Web: Pujcimedodavky.cz
-IČO: 07031653
-(dále jen "pronajímatel")
-
-Nájemce:
-Jméno: ${customerForContract.firstName} ${customerForContract.lastName}
-Email: ${customerForContract.email}
-Telefon: ${customerForContract.phone}
-Číslo ŘP: ${customerForContract.driverLicenseNumber}
-(dále jen "nájemce")
-
-Článek II. - Předmět nájmu
------------------------------------------
-Pronajímatel tímto přenechává nájemci do dočasného užívání následující motorové vozidlo:
-Vozidlo: ${selectedVehicle?.name}
-SPZ: ${selectedVehicle?.licensePlate}
-Rok výroby: ${selectedVehicle?.year}
-
-Článek III. - Doba nájmu a cena
------------------------------------------
-Doba nájmu: od ${new Date(startDate).toLocaleString('cs-CZ')} do ${new Date(endDate).toLocaleString('cs-CZ')}
-Celková cena nájmu: ${totalPrice.toLocaleString('cs-CZ')} Kč
-
-Článek IV. - Práva a povinnosti
------------------------------------------
-1. Nájemce potvrzuje, že vozidlo převzal v řádném technickém stavu, bez zjevných závad a s kompletní povinnou výbavou.
-2. Nájemce je povinen užívat vozidlo s péčí řádného hospodáře a chránit ho před poškozením, ztrátou či zničením.
-3. Nájemce není oprávněn přenechat vozidlo do užívání třetí osobě bez předchozího písemného souhlasu pronajímatele.
-
-Článek V. - Spoluúčast a poškození vozidla
------------------------------------------
-V případě poškození vozidla zaviněného nájemcem se sjednává spoluúčast ve výši 5.000 Kč až 10.000 Kč dle rozsahu poškození. Tato spoluúčast bude hrazena nájemcem.
-
-Článek VI. - Závěrečná ustanovení
------------------------------------------
-Tato smlouva je vyhotovena elektronicky. Nájemce svým digitálním podpisem stvrzuje, že se seznámil s obsahem smlouvy, souhlasí s ním a vozidlo v uvedeném stavu přebírá.
-            `;
-
-            const mailtoBody = encodeURIComponent(contractText);
-            const mailtoLink = `mailto:${customerForContract.email}?subject=${encodeURIComponent(`Smlouva o pronájmu vozidla ${selectedVehicle?.name}`)}&body=${mailtoBody}`;
-            
-            window.location.href = mailtoLink;
-
-            alert("Rezervace byla úspěšně vytvořena! Nyní budete přesměrováni do emailového klienta pro odeslání smlouvy.");
-            
-            // Reset form
-            setSelectedCustomerId('');
-            setIsNewCustomer(false);
-            // FIX: Added 'address' to the form reset to match the Customer type.
-            setNewCustomerData({ firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: '' });
-            setSelectedVehicleId('');
-            setStartDate('');
-            setEndDate('');
-            signaturePadRef.current?.clear();
-
+            const [custData, vehData] = await Promise.all([getCustomers(), getVehicles()]);
+            setCustomers(custData);
+            setVehicles(vehData.filter(v => v.status === 'available'));
         } catch (error) {
-            console.error("Failed to create reservation:", error);
-            alert(`Chyba při vytváření rezervace: ${error instanceof Error ? error.message : "Neznámá chyba"}`);
+            console.error("Failed to fetch data:", error);
         } finally {
             setLoading(false);
         }
     };
+
+    useEffect(() => {
+        fetchData();
+    }, []);
+
+    const selectedVehicle = vehicles.find(v => v.id === selectedVehicleId);
+    const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
+
+    const calculatePrice = () => {
+        if (!selectedVehicle || !startDate || !endDate) return 0;
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        if (end <= start) return 0;
+        const durationHours = (end.getTime() - start.getTime()) / (1000 * 3600);
+        if (durationHours <= 4) return selectedVehicle.rate4h;
+        if (durationHours <= 12) return selectedVehicle.rate12h;
+        const days = Math.ceil(durationHours / 24);
+        return days * selectedVehicle.dailyRate;
+    };
     
-    if (loading && vehicles.length === 0) return <div>Načítání...</div>;
+    const handleAddNewCustomer = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsProcessing(true);
+        try {
+            const newCustomer = await addCustomer(newCustomerData);
+            setCustomers([...customers, newCustomer]);
+            setSelectedCustomerId(newCustomer.id);
+            setShowNewCustomerForm(false);
+            setNewCustomerData({ firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: '' });
+        } catch (error) {
+            console.error("Failed to add new customer:", error);
+            alert("Nepodařilo se přidat nového zákazníka.");
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+    
+    const handleCreateReservation = async () => {
+        if (!selectedCustomerId || !selectedVehicleId || !startDate || !endDate || !signaturePadRef.current || signaturePadRef.current.isEmpty()) {
+            alert('Prosím, vyplňte všechny údaje a přidejte podpis.');
+            return;
+        }
+
+        setIsProcessing(true);
+        try {
+            // 1. Create Reservation
+            const reservationData = {
+                customerId: selectedCustomerId,
+                vehicleId: selectedVehicleId,
+                startDate: new Date(startDate),
+                endDate: new Date(endDate),
+            };
+            const newReservation = await addReservation(reservationData);
+
+            // 2. Generate and Save Contract
+            const price = calculatePrice();
+            const contractText = `
+Smlouva o pronájmu vozidla
+-----------------------------
+
+**Pronajímatel:**
+Milan Gula
+Ghegova 17, Brno, 60200
+Pujcimedodavky.cz
+IČO: 07031653
+
+**Nájemce:**
+Jméno: ${selectedCustomer?.firstName} ${selectedCustomer?.lastName}
+Adresa: ${selectedCustomer?.address}
+Email: ${selectedCustomer?.email}
+Telefon: ${selectedCustomer?.phone}
+Číslo ŘP: ${selectedCustomer?.driverLicenseNumber}
+
+**Předmět nájmu:**
+Vozidlo: ${selectedVehicle?.name}
+SPZ: ${selectedVehicle?.licensePlate}
+
+**Doba nájmu:**
+Od: ${new Date(startDate).toLocaleString('cs-CZ')}
+Do: ${new Date(endDate).toLocaleString('cs-CZ')}
+Cena: ${price.toLocaleString('cs-CZ')} Kč
+
+**Podmínky:**
+Spoluúčast nájemce v případě poškození je 5 000 - 10 000 Kč.
+Nájemce potvrzuje, že vozidlo převzal v dobrém technickém stavu.
+
+Podpis nájemce: (viz digitální podpis)
+            `;
+
+            await addContract({
+                reservationId: newReservation.id,
+                customerId: selectedCustomerId,
+                vehicleId: selectedVehicleId,
+                contractText: contractText,
+            });
+
+            // 3. Prepare and open Mailto
+            const subject = `Smlouva o pronájmu vozidla: ${selectedVehicle?.name}`;
+            const mailtoLink = `mailto:${selectedCustomer?.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(contractText)}`;
+            window.location.href = mailtoLink;
+
+            // 4. Reset form
+            setSelectedCustomerId('');
+            setSelectedVehicleId('');
+            setStartDate('');
+            setEndDate('');
+            signaturePadRef.current?.clear();
+            fetchData(); // Refresh available vehicles
+            alert('Rezervace úspěšně vytvořena a email připraven k odeslání!');
+
+        } catch (error) {
+            console.error("Failed to create reservation:", error);
+            let userMessage = "Vytvoření rezervace se nezdařilo.";
+            if (error instanceof Error) {
+                if (error.message.includes('contracts')) {
+                    userMessage = "Rezervace byla vytvořena, ale nepodařilo se uložit smlouvu. Chyba databáze: Zkontrolujte, zda existuje tabulka 'contracts'.";
+                } else {
+                    userMessage = `Vytvoření rezervace se nezdařilo: ${error.message}`;
+                }
+            }
+            alert(userMessage);
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    if (loading) return <div>Načítání...</div>;
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-8">
-            <h1 className="text-3xl font-bold text-gray-800">Nová rezervace</h1>
-            
+        <div className="container mx-auto">
+            <h1 className="text-3xl font-bold text-gray-800 mb-6">Nová rezervace a smlouva</h1>
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Left Column: Form Fields */}
-                <div className="lg:col-span-2 space-y-6 bg-white p-6 rounded-lg shadow-md">
+                {/* Main Form Area */}
+                <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow-md space-y-8">
                     {/* Customer Section */}
                     <section>
-                        <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4"><UserPlus className="mr-2"/>1. Zákazník</h2>
-                        <div className="flex items-center space-x-4">
-                            <select
-                                value={selectedCustomerId}
-                                onChange={(e) => { setSelectedCustomerId(e.target.value); setIsNewCustomer(false); }}
-                                className="w-full p-2 border rounded-md"
-                                disabled={isNewCustomer}
-                            >
+                        <h2 className="text-xl font-semibold flex items-center text-primary"><UserPlus className="mr-3" />1. Zákazník</h2>
+                        <div className="mt-4">
+                            <select value={selectedCustomerId} onChange={e => setSelectedCustomerId(e.target.value)} className="w-full p-2 border rounded" disabled={showNewCustomerForm}>
                                 <option value="">Vyberte stávajícího zákazníka</option>
                                 {customers.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName} ({c.email})</option>)}
                             </select>
-                            <span className="text-gray-500">nebo</span>
-                             <button type="button" onClick={() => { setIsNewCustomer(!isNewCustomer); setSelectedCustomerId(''); }} className={`py-2 px-4 rounded-md font-semibold whitespace-nowrap ${isNewCustomer ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>
-                                Nový zákazník
+                            <button onClick={() => setShowNewCustomerForm(!showNewCustomerForm)} className="text-sm text-blue-600 hover:underline mt-2">
+                                {showNewCustomerForm ? 'Zrušit přidání nového' : '...nebo přidat nového zákazníka'}
                             </button>
                         </div>
-                        {isNewCustomer && (
-                            <div className="mt-4 space-y-2 p-4 border-t">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <input type="text" placeholder="Jméno" value={newCustomerData.firstName} onChange={e => setNewCustomerData({...newCustomerData, firstName: e.target.value})} className="w-full p-2 border rounded" required />
-                                    <input type="text" placeholder="Příjmení" value={newCustomerData.lastName} onChange={e => setNewCustomerData({...newCustomerData, lastName: e.target.value})} className="w-full p-2 border rounded" required />
+                        {showNewCustomerForm && (
+                            <form onSubmit={handleAddNewCustomer} className="mt-4 p-4 border rounded-lg bg-gray-50 space-y-3">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <input type="text" placeholder="Jméno" value={newCustomerData.firstName} onChange={e => setNewCustomerData({...newCustomerData, firstName: e.target.value})} required className="p-2 border rounded"/>
+                                    <input type="text" placeholder="Příjmení" value={newCustomerData.lastName} onChange={e => setNewCustomerData({...newCustomerData, lastName: e.target.value})} required className="p-2 border rounded"/>
                                 </div>
-                                <input type="email" placeholder="Email" value={newCustomerData.email} onChange={e => setNewCustomerData({...newCustomerData, email: e.target.value})} className="w-full p-2 border rounded" required />
-                                <input type="text" placeholder="Adresa" value={newCustomerData.address} onChange={e => setNewCustomerData({...newCustomerData, address: e.target.value})} className="w-full p-2 border rounded" required />
-                                <div className="grid grid-cols-2 gap-4">
-                                     <input type="tel" placeholder="Telefon" value={newCustomerData.phone} onChange={e => setNewCustomerData({...newCustomerData, phone: e.target.value})} className="w-full p-2 border rounded" required />
-                                    <input type="text" placeholder="Číslo ŘP" value={newCustomerData.driverLicenseNumber} onChange={e => setNewCustomerData({...newCustomerData, driverLicenseNumber: e.target.value})} className="w-full p-2 border rounded" required />
+                                <input type="email" placeholder="Email" value={newCustomerData.email} onChange={e => setNewCustomerData({...newCustomerData, email: e.target.value})} required className="w-full p-2 border rounded"/>
+                                <input type="text" placeholder="Adresa" value={newCustomerData.address} onChange={e => setNewCustomerData({...newCustomerData, address: e.target.value})} required className="w-full p-2 border rounded"/>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <input type="tel" placeholder="Telefon" value={newCustomerData.phone} onChange={e => setNewCustomerData({...newCustomerData, phone: e.target.value})} required className="p-2 border rounded"/>
+                                    <input type="text" placeholder="Číslo ŘP" value={newCustomerData.driverLicenseNumber} onChange={e => setNewCustomerData({...newCustomerData, driverLicenseNumber: e.target.value})} required className="p-2 border rounded"/>
                                 </div>
-                            </div>
+                                <button type="submit" className="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600" disabled={isProcessing}>
+                                    {isProcessing ? 'Ukládám...' : 'Uložit nového zákazníka'}
+                                </button>
+                            </form>
                         )}
                     </section>
 
                     {/* Vehicle Section */}
-                     <section>
-                        <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4"><Car className="mr-2"/>2. Vozidlo</h2>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                            {availableVehicles.map(v => (
+                    <section>
+                         <h2 className="text-xl font-semibold flex items-center text-primary"><Car className="mr-3" />2. Výběr vozidla</h2>
+                         <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-4">
+                             {vehicles.map(v => (
                                 <div key={v.id} onClick={() => setSelectedVehicleId(v.id)} className={`border-2 rounded-lg p-3 cursor-pointer ${selectedVehicleId === v.id ? 'border-primary shadow-lg' : 'border-gray-200 hover:border-blue-300'}`}>
                                     <img src={v.imageUrl} alt={v.name} className="w-full h-24 object-cover rounded-md mb-2"/>
-                                    <h3 className="font-semibold">{v.name}</h3>
-                                    <p className="text-xs text-gray-500">{v.rate4h.toLocaleString('cs-CZ')} Kč/4h | {v.rate12h.toLocaleString('cs-CZ')} Kč/12h</p>
-                                    <p className="text-sm text-gray-700 font-bold">{v.dailyRate.toLocaleString('cs-CZ')} Kč/den</p>
+                                    <h3 className="font-semibold text-sm">{v.name}</h3>
+                                    <p className="text-xs text-gray-500">{v.licensePlate}</p>
                                 </div>
-                            ))}
-                        </div>
+                             ))}
+                         </div>
                     </section>
-                    
-                     {/* Date & Time Section */}
+
+                    {/* Date Section */}
                     <section>
-                        <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4"><CalendarIcon className="mr-2"/>3. Doba pronájmu</h2>
-                        <div className="grid grid-cols-2 gap-4 mb-3">
+                        <h2 className="text-xl font-semibold flex items-center text-primary"><Calendar className="mr-3" />3. Termín zápůjčky</h2>
+                        <div className="mt-4 grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-medium">Od (datum a čas)</label>
                                 <input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full p-2 border rounded" required />
@@ -362,66 +226,41 @@ Tato smlouva je vyhotovena elektronicky. Nájemce svým digitálním podpisem st
                                 <input type="datetime-local" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full p-2 border rounded" required />
                             </div>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                             <span className="self-center mr-2 text-sm font-medium">Rychlá volba:</span>
-                            {[
-                                {label: '4 hod', hours: 4}, {label: '12 hod', hours: 12}, {label: '1 den', hours: 24},
-                                {label: 'Víkend (2 dny)', hours: 48}, {label: 'Týden', hours: 168}, {label: 'Měsíc (30 dní)', hours: 720}
-                            ].map(preset => (
-                                <button type="button" key={preset.hours} onClick={() => handleSetDuration(preset.hours)} className="px-3 py-1 text-sm bg-gray-200 rounded-full hover:bg-gray-300">{preset.label}</button>
-                            ))}
-                        </div>
                     </section>
                     
                     {/* Signature Section */}
                     <section>
-                         <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4"><Signature className="mr-2"/>4. Podpis zákazníka</h2>
-                         <SignaturePad ref={signaturePadRef} />
+                        <h2 className="text-xl font-semibold flex items-center text-primary"><Pen className="mr-3" />4. Podpis zákazníka</h2>
+                        <div className="mt-4 border rounded-lg">
+                            <SignaturePad ref={signaturePadRef} />
+                        </div>
                     </section>
-
                 </div>
 
-                {/* Right Column: Summary */}
+                {/* Summary & Action Area */}
                 <div className="lg:col-span-1">
                     <div className="bg-white p-6 rounded-lg shadow-md sticky top-6">
-                        <h2 className="text-xl font-bold text-gray-800 border-b pb-3 mb-4">Souhrn rezervace</h2>
-                        <div className="space-y-4">
-                            <div>
-                                <h3 className="font-semibold">Zákazník:</h3>
-                                <p className="text-gray-700">{isNewCustomer ? `${newCustomerData.firstName} ${newCustomerData.lastName}` : (selectedCustomer ? `${selectedCustomer.firstName} ${selectedCustomer.lastName}`: 'Nevybrán')}</p>
-                            </div>
-                             <div>
-                                <h3 className="font-semibold">Vozidlo:</h3>
-                                {selectedVehicle ? (
-                                    <div className="flex items-center mt-1">
-                                        <img src={selectedVehicle.imageUrl} alt={selectedVehicle.name} className="w-16 h-12 object-cover rounded mr-3"/>
-                                        <div>
-                                            <p className="text-gray-700 font-medium">{selectedVehicle.name}</p>
-                                            <p className="text-sm text-gray-500">{selectedVehicle.licensePlate}</p>
-                                        </div>
-                                    </div>
-                                ) : <p className="text-gray-700">Nevybráno</p>}
-                            </div>
-                            <div>
-                                <h3 className="font-semibold">Období:</h3>
-                                <p className="text-gray-700">{startDate ? new Date(startDate).toLocaleString('cs-CZ') : 'N/A'}</p>
-
-                                <p className="text-gray-700">{endDate ? new Date(endDate).toLocaleString('cs-CZ') : 'N/A'}</p>
-                            </div>
-                             <div className="border-t pt-4">
-                                <p className="flex justify-between items-baseline text-2xl font-bold">
-                                    <span>Celkem:</span>
-                                    <span>{totalPrice.toLocaleString('cs-CZ')} Kč</span>
-                                </p>
-                            </div>
+                        <h2 className="text-xl font-bold text-gray-800 border-b pb-3 mb-4">Souhrn a vytvoření</h2>
+                        <div className="space-y-3 text-sm">
+                            <p><strong>Zákazník:</strong> {selectedCustomer ? `${selectedCustomer.firstName} ${selectedCustomer.lastName}` : 'Nevybrán'}</p>
+                            <p><strong>Vozidlo:</strong> {selectedVehicle ? selectedVehicle.name : 'Nevybráno'}</p>
+                            <p><strong>Od:</strong> {startDate ? new Date(startDate).toLocaleString('cs-CZ') : 'Nezadáno'}</p>
+                            <p><strong>Do:</strong> {endDate ? new Date(endDate).toLocaleString('cs-CZ') : 'Nezadáno'}</p>
                         </div>
-                         <button type="submit" className="w-full mt-6 bg-secondary text-dark-text font-bold py-3 rounded-lg hover:bg-secondary-hover transition-colors text-lg" disabled={loading}>
-                            {loading ? 'Zpracovávám...' : 'Vytvořit rezervaci a smlouvu'}
+                        <div className="border-t pt-4 mt-4">
+                            <p className="flex justify-between items-baseline text-2xl font-bold">
+                                <span>Celkem:</span>
+                                <span>{calculatePrice().toLocaleString('cs-CZ')} Kč</span>
+                            </p>
+                        </div>
+                        <button onClick={handleCreateReservation} className="w-full mt-6 bg-secondary text-dark-text font-bold py-3 rounded-lg hover:bg-secondary-hover transition-colors text-lg flex items-center justify-center" disabled={isProcessing}>
+                            <Mail className="w-5 h-5 mr-2" />
+                            {isProcessing ? 'Zpracovávám...' : 'Vytvořit a odeslat smlouvu'}
                         </button>
                     </div>
                 </div>
             </div>
-        </form>
+        </div>
     );
 };
 
