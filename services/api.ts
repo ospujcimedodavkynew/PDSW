@@ -1,9 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Vehicle, Customer, Reservation, Contract, FinancialTransaction } from '../types';
 
-// Vracíme se k `process.env`, což je standard pro prostředí jako Vercel.
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+// V prostředí bez build-processu se proměnné prostředí často nenastavují přes import.meta.env.
+// Bezpečnější metodou je načíst je z globálního objektu window, kam je platforma
+// jako Vercel může vložit. Toto řeší chybu 'import.meta.env is undefined'.
+const supabaseUrl = (window as any).VITE_SUPABASE_URL;
+const supabaseAnonKey = (window as any).VITE_SUPABASE_ANON_KEY;
+
 
 // Exportujeme stav, aby UI mohlo reagovat a zobrazit chybovou hlášku
 export const areSupabaseCredentialsSet = !!(supabaseUrl && supabaseAnonKey);
