@@ -1,0 +1,46 @@
+
+import React from 'react';
+import { Page } from '../types';
+import { LayoutDashboard, Car, Users, Calendar, FileText, DollarSign } from 'lucide-react';
+
+interface SidebarProps {
+    currentPage: Page;
+    setCurrentPage: (page: Page) => void;
+}
+
+const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage }) => {
+    const navItems = [
+        { page: Page.DASHBOARD, label: 'Přehled', icon: LayoutDashboard },
+        { page: Page.RESERVATIONS, label: 'Rezervace a Kalendář', icon: Calendar },
+        { page: Page.VEHICLES, label: 'Vozový park', icon: Car },
+        { page: Page.CUSTOMERS, label: 'Zákazníci', icon: Users },
+        { page: Page.CONTRACTS, label: 'Smlouvy', icon: FileText },
+        { page: Page.FINANCIALS, label: 'Finance', icon: DollarSign },
+    ];
+
+    return (
+        <div className="w-64 bg-primary text-light-text flex flex-col">
+            <div className="p-6 text-2xl font-bold border-b border-blue-800">
+                Van Rental Pro
+            </div>
+            <nav className="flex-1 px-4 py-6">
+                {navItems.map(({ page, label, icon: Icon }) => (
+                    <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={`w-full flex items-center px-4 py-3 my-1 rounded-lg transition-colors duration-200 ${
+                            currentPage === page
+                                ? 'bg-blue-700 text-white'
+                                : 'text-blue-200 hover:bg-blue-800 hover:text-white'
+                        }`}
+                    >
+                        <Icon className="w-5 h-5 mr-3" />
+                        <span className="font-medium">{label}</span>
+                    </button>
+                ))}
+            </nav>
+        </div>
+    );
+};
+
+export default Sidebar;
