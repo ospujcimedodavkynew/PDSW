@@ -62,7 +62,9 @@ const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({ isOpen,
                     </div>
                      <div>
                         <h3 className="font-semibold text-gray-500">Období</h3>
-                        <p className="text-lg">{reservation.startDate.toLocaleString('cs-CZ')} - {reservation.endDate.toLocaleString('cs-CZ')}</p>
+                        <p className="text-lg">
+                            {new Date(reservation.startDate).toLocaleString('cs-CZ')} - {new Date(reservation.endDate).toLocaleString('cs-CZ')}
+                        </p>
                     </div>
 
                     {isArrival && (
