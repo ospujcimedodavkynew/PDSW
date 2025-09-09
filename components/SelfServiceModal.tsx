@@ -15,23 +15,34 @@ const SelfServiceModal: React.FC<SelfServiceModalProps> = ({ isOpen, onClose, av
     const [generatedLink, setGeneratedLink] = useState<string>('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     if (!isOpen) return null;
 
     const handleGenerateLink = async () => {
+        setError(null);
         if (!selectedVehicleId) {
-            alert('Vyberte prosím vozidlo.');
+            setError('Vyberte prosím vozidlo.');
             return;
         }
+
+        // === KLÍČOVÁ ZMĚNA: Kontrola konfigurace před voláním API ===
+        const env = (window as any).env || {};
+        if (!env.VITE_SUPABASE_URL || env.VITE_SUPABASE_URL.includes("vasedomena")) {
+            setError("Chyba: Aplikace stále používá zástupnou URL. Zkontrolujte prosím, že jste správně vložili a uložili klíče v souboru index.html a nahráli tuto změnu na server.");
+            return;
+        }
+        // ==========================================================
+
         setIsProcessing(true);
         try {
             const reservation = await createPendingReservation(selectedVehicleId);
             const link = `${window.location.origin}${window.location.pathname}?portal=${reservation.portalToken}`;
             setGeneratedLink(link);
             onLinkGenerated();
-        } catch (error) {
-            console.error('Failed to generate link', error);
-            alert('Nepodařilo se vygenerovat odkaz.');
+        } catch (err) {
+            console.error('Failed to generate link', err);
+            setError(err instanceof Error ? err.message : 'Nepodařilo se vygenerovat odkaz.');
         } finally {
             setIsProcessing(false);
         }
@@ -47,6 +58,7 @@ const SelfServiceModal: React.FC<SelfServiceModalProps> = ({ isOpen, onClose, av
         setSelectedVehicleId('');
         setGeneratedLink('');
         setIsProcessing(false);
+        setError(null);
         onClose();
     }
 
@@ -64,13 +76,20 @@ const SelfServiceModal: React.FC<SelfServiceModalProps> = ({ isOpen, onClose, av
                         <select
                             value={selectedVehicleId}
                             onChange={(e) => setSelectedVehicleId(e.target.value)}
-                            className="w-full p-3 border rounded-md mb-6"
+                            className="w-full p-3 border rounded-md mb-4"
                         >
                             <option value="">-- Vyberte vozidlo --</option>
                             {availableVehicles.map(v => (
                                 <option key={v.id} value={v.id}>{v.name} ({v.licensePlate})</option>
                             ))}
                         </select>
+                        
+                        {error && (
+                            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+                                <span className="block sm:inline">{error}</span>
+                            </div>
+                        )}
+
                         <div className="flex justify-end">
                             <button
                                 onClick={handleGenerateLink}
