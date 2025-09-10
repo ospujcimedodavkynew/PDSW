@@ -261,7 +261,12 @@ Celková cena nájmu: ${totalPrice.toLocaleString('cs-CZ')} Kč
 -----------------------------------------
 V případě poškození vozidla zaviněného nájemcem se sjednává spoluúčast ve výši 5.000 Kč až 10.000 Kč dle rozsahu poškození. Tato spoluúčast bude hrazena nájemcem.
 
-Článek VI. - Závěrečná ustanovení
+Článek VI. - Stav kilometrů a limit
+-----------------------------------------
+Počáteční stav kilometrů: ${selectedVehicle?.currentMileage.toLocaleString('cs-CZ')} km
+Denní limit pro nájezd je 300 km. Za každý kilometr nad tento limit (vypočítaný jako 300 km * počet dní pronájmu) bude účtován poplatek 3 Kč/km.
+
+Článek VII. - Závěrečná ustanovení
 -----------------------------------------
 Tato smlouva je vyhotovena elektronicky. Nájemce svým digitálním podpisem stvrzuje, že se seznámil s obsahem smlouvy, souhlasí s ním a vozidlo v uvedeném stavu přebírá.
             `;

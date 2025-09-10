@@ -1,7 +1,7 @@
 import React, { useEffect, useState, FormEvent } from 'react';
 import { getVehicles, addVehicle, updateVehicle } from '../services/api';
 import type { Vehicle } from '../types';
-import { Car, Wrench, CheckCircle, Plus, X } from 'lucide-react';
+import { Car, Wrench, CheckCircle, Plus, X, Gauge } from 'lucide-react';
 
 const VehicleCard: React.FC<{ vehicle: Vehicle; onEdit: (vehicle: Vehicle) => void; }> = ({ vehicle, onEdit }) => {
     const statusInfo = {
@@ -17,6 +17,10 @@ const VehicleCard: React.FC<{ vehicle: Vehicle; onEdit: (vehicle: Vehicle) => vo
                 <h3 className="text-xl font-bold text-gray-800">{vehicle.name}</h3>
                 <p className="text-sm text-gray-500">{vehicle.make} {vehicle.model} ({vehicle.year})</p>
                 <p className="text-gray-600 font-semibold mt-2">{vehicle.licensePlate}</p>
+                 <div className="flex items-center text-sm text-gray-500 mt-1">
+                    <Gauge className="w-4 h-4 mr-2" />
+                    <span>Stav km: {vehicle.currentMileage.toLocaleString('cs-CZ')} km</span>
+                </div>
                 <div className={`flex items-center mt-2 font-medium ${statusInfo[vehicle.status].color}`}>
                     {statusInfo[vehicle.status].icon}
                     <span className="ml-2">{statusInfo[vehicle.status].text}</span>
@@ -53,6 +57,7 @@ const VehicleFormModal: React.FC<{
         rate12h: 0,
         dailyRate: 0,
         features: [],
+        currentMileage: 0,
     };
     
     const [formData, setFormData] = useState<Partial<Vehicle>>(getInitialData(vehicle));
@@ -111,6 +116,10 @@ const VehicleFormModal: React.FC<{
                      <div className="grid grid-cols-2 gap-4">
                         <input type="number" placeholder="Rok výroby" value={formData.year || ''} onChange={e => setFormData({ ...formData, year: parseInt(e.target.value) || 0 })} className="w-full p-2 border rounded" required />
                         <input type="text" placeholder="SPZ" value={formData.licensePlate || ''} onChange={e => setFormData({ ...formData, licensePlate: e.target.value })} className="w-full p-2 border rounded" required />
+                    </div>
+                     <div>
+                         <label className="block text-sm font-medium text-gray-700 mb-1">Aktuální stav kilometrů</label>
+                        <input type="number" placeholder="Aktuální stav km" value={formData.currentMileage || 0} onChange={e => setFormData({ ...formData, currentMileage: parseInt(e.target.value) || 0 })} className="w-full p-2 border rounded" required />
                     </div>
                     <div>
                          <label className="block text-sm font-medium text-gray-700 mb-1">Ceny pronájmu</label>

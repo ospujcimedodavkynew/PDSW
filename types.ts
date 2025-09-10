@@ -22,6 +22,7 @@ export interface Vehicle {
     rate12h: number;
     dailyRate: number;
     features: string[];
+    currentMileage: number;
 }
 
 // Represents a customer
@@ -39,15 +40,17 @@ export interface Customer {
 // Represents a reservation
 export interface Reservation {
     id: string;
-    customerId: string | null;
+    customerId: string;
     vehicleId: string;
-    startDate?: Date;
-    endDate?: Date;
+    startDate: Date;
+    endDate: Date;
     status: 'pending-customer' | 'scheduled' | 'active' | 'completed';
     portalToken?: string;
     notes?: string;
     customer?: Customer;
     vehicle?: Vehicle;
+    startMileage?: number;
+    endMileage?: number;
 }
 
 // Represents a contract

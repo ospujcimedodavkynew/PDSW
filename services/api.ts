@@ -47,6 +47,7 @@ const toVehicle = (dbVehicle: any): Vehicle => ({
     rate12h: dbVehicle.rate12h,
     dailyRate: dbVehicle.daily_rate,
     features: dbVehicle.features || [],
+    currentMileage: dbVehicle.current_mileage,
 });
 
 const fromVehicle = (vehicle: Partial<Vehicle>) => ({
@@ -61,6 +62,7 @@ const fromVehicle = (vehicle: Partial<Vehicle>) => ({
     daily_rate: vehicle.dailyRate,
     features: vehicle.features,
     image_url: vehicle.imageUrl,
+    current_mileage: vehicle.currentMileage,
 });
 
 const toCustomer = (dbCustomer: any): Customer => ({
@@ -95,6 +97,8 @@ const toReservation = (dbReservation: any): Reservation => ({
     notes: dbReservation.notes,
     customer: dbReservation.customers ? toCustomer(dbReservation.customers) : (dbReservation.customer ? toCustomer(dbReservation.customer) : undefined),
     vehicle: dbReservation.vehicles ? toVehicle(dbReservation.vehicles) : (dbReservation.vehicle ? toVehicle(dbReservation.vehicle) : undefined),
+    startMileage: dbReservation.start_mileage,
+    endMileage: dbReservation.end_mileage,
 });
 
 const toContract = (dbContract: any): Contract => ({
@@ -181,10 +185,10 @@ export const addReservation = async (reservationData: Omit<Reservation, 'id' | '
     return toReservation(data);
 };
 
-export const activateReservation = async (reservationId: string): Promise<Reservation> => {
+export const activateReservation = async (reservationId: string, startMileage: number): Promise<Reservation> => {
     const { data: reservation, error: resError } = await getClient()
         .from('reservations')
-        .update({ status: 'active' })
+        .update({ status: 'active', start_mileage: startMileage })
         .eq('id', reservationId)
         .select()
         .single();
@@ -192,17 +196,17 @@ export const activateReservation = async (reservationId: string): Promise<Reserv
 
     const { error: vehicleError } = await getClient()
         .from('vehicles')
-        .update({ status: 'rented' })
+        .update({ status: 'rented', current_mileage: startMileage })
         .eq('id', reservation.vehicle_id);
     handleSupabaseError(vehicleError, 'activateReservation - update vehicle');
     
     return toReservation(reservation);
 };
 
-export const completeReservation = async (reservationId: string, notes: string): Promise<Reservation> => {
+export const completeReservation = async (reservationId: string, endMileage: number, notes: string): Promise<Reservation> => {
     const { data: reservation, error: resError } = await getClient()
         .from('reservations')
-        .update({ status: 'completed', notes })
+        .update({ status: 'completed', notes, end_mileage: endMileage })
         .eq('id', reservationId)
         .select()
         .single();
@@ -210,7 +214,7 @@ export const completeReservation = async (reservationId: string, notes: string):
 
     const { error: vehicleError } = await getClient()
         .from('vehicles')
-        .update({ status: 'available' })
+        .update({ status: 'available', current_mileage: endMileage })
         .eq('id', reservation.vehicle_id);
     handleSupabaseError(vehicleError, 'completeReservation - update vehicle');
     
