@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, Session } from '@supabase/supabase-js';
 import type { Vehicle, Customer, Reservation, Contract, FinancialTransaction } from '../types';
 
 // Načtení konfigurace z globálního objektu window, který je definován v index.html
@@ -31,6 +31,37 @@ const handleSupabaseError = (error: any, context: string) => {
         throw new Error(error.message);
     }
 };
+
+// --- Authentication API ---
+
+export const signInWithPassword = async (email: string, password: string) => {
+    const { error } = await getClient().auth.signInWithPassword({ email, password });
+    if (error) {
+        if (error.message === 'Invalid login credentials') {
+            throw new Error('Neplatné přihlašovací údaje. Zkontrolujte prosím e-mail a heslo.');
+        }
+        throw error;
+    }
+};
+
+export const signOut = async () => {
+    const { error } = await getClient().auth.signOut();
+    handleSupabaseError(error, 'signOut');
+};
+
+export const getSession = async (): Promise<Session | null> => {
+    const { data, error } = await getClient().auth.getSession();
+    handleSupabaseError(error, 'getSession');
+    return data.session;
+}
+
+export const onAuthChange = (callback: (session: Session | null) => void) => {
+    const { data: { subscription } } = getClient().auth.onAuthStateChange((_event, session) => {
+        callback(session);
+    });
+    return subscription;
+};
+
 
 // --- Mappers for data consistency ---
 

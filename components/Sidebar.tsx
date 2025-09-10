@@ -1,7 +1,8 @@
 
 import React from 'react';
 import { Page } from '../types';
-import { LayoutDashboard, Car, Users, Calendar, FileText, DollarSign } from 'lucide-react';
+import { LayoutDashboard, Car, Users, Calendar, FileText, DollarSign, LogOut } from 'lucide-react';
+import { signOut } from '../services/api';
 
 interface SidebarProps {
     currentPage: Page;
@@ -17,6 +18,16 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage }) => {
         { page: Page.CONTRACTS, label: 'Smlouvy', icon: FileText },
         { page: Page.FINANCIALS, label: 'Finance', icon: DollarSign },
     ];
+    
+    const handleSignOut = async () => {
+        try {
+            await signOut();
+            // The onAuthStateChange listener in App.tsx will handle the redirect.
+        } catch (error) {
+            console.error("Failed to sign out:", error);
+            alert("Odhlášení se nezdařilo.");
+        }
+    };
 
     return (
         <div className="w-64 bg-primary text-light-text flex flex-col">
@@ -39,6 +50,17 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage }) => {
                     </button>
                 ))}
             </nav>
+
+            {/* Logout Button */}
+            <div className="px-4 py-4 border-t border-blue-800">
+                 <button
+                    onClick={handleSignOut}
+                    className="w-full flex items-center px-4 py-3 rounded-lg text-blue-200 hover:bg-blue-800 hover:text-white transition-colors duration-200"
+                >
+                    <LogOut className="w-5 h-5 mr-3" />
+                    <span className="font-medium">Odhlásit se</span>
+                </button>
+            </div>
         </div>
     );
 };

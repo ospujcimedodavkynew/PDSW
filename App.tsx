@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Reservations from './pages/Reservations';
@@ -7,9 +7,12 @@ import Customers from './pages/Customers';
 import Contracts from './pages/Contracts';
 import Financials from './pages/Financials';
 import CustomerPortal from './pages/CustomerPortal';
+import Login from './pages/Login';
 import { Page } from './types';
-import { areSupabaseCredentialsSet } from './services/api';
-import { AlertTriangle } from 'lucide-react';
+import { areSupabaseCredentialsSet, getSession, onAuthChange } from './services/api';
+import { AlertTriangle, Loader } from 'lucide-react';
+import type { Session } from '@supabase/supabase-js';
+
 
 const ConfigError = () => (
     <div className="flex h-screen w-screen items-center justify-center bg-red-50 p-4">
@@ -26,20 +29,49 @@ const ConfigError = () => (
     </div>
 );
 
+const LoadingScreen = () => (
+    <div className="flex h-screen w-screen items-center justify-center bg-gray-100">
+        <Loader className="w-12 h-12 text-primary animate-spin" />
+    </div>
+)
+
 
 function App() {
+  // --- KONTROLA KONFIGURACE ---
   if (!areSupabaseCredentialsSet) {
     return <ConfigError />;
   }
   
-  const [currentPage, setCurrentPage] = useState<Page>(Page.DASHBOARD);
-
+  // --- KONTROLA SAMOOBSLUŽNÉHO PORTÁLU ---
   const urlParams = new URLSearchParams(window.location.search);
   const portalToken = urlParams.get('portal');
-
   if (portalToken) {
     return <CustomerPortal token={portalToken} />;
   }
+
+  // --- LOGIKA AUTENTIZACE A NAVIGACE ---
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState<Page>(Page.DASHBOARD);
+
+  useEffect(() => {
+    // Okamžitě zkusíme získat session
+    getSession().then((session) => {
+        setSession(session);
+        setLoading(false);
+    });
+
+    // A začneme poslouchat na změny (přihlášení/odhlášení)
+    const authSubscription = onAuthChange((session) => {
+        setSession(session);
+    });
+
+    // Při odmontování komponenty se odhlásíme z posluchače
+    return () => {
+        authSubscription.unsubscribe();
+    };
+  }, []);
+
 
   const renderPage = () => {
     switch (currentPage) {
@@ -59,6 +91,16 @@ function App() {
         return <Dashboard setCurrentPage={setCurrentPage} />;
     }
   };
+
+  // --- RENDER ---
+
+  if (loading) {
+      return <LoadingScreen />;
+  }
+  
+  if (!session) {
+      return <Login />;
+  }
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans">
