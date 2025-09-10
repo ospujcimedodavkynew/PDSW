@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Mail, Send } from 'lucide-react';
+import { X, Mail, Send, Calendar } from 'lucide-react';
 import { Vehicle } from '../types';
 import { createPendingReservation } from '../services/api';
 
@@ -13,11 +13,15 @@ interface SelfServiceModalProps {
 const SelfServiceModal: React.FC<SelfServiceModalProps> = ({ isOpen, onClose, availableVehicles, onLinkGenerated }) => {
     const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
     const [customerEmail, setCustomerEmail] = useState<string>('');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
 
     const resetAndClose = () => {
         setSelectedVehicleId('');
         setCustomerEmail('');
+        setStartDate('');
+        setEndDate('');
         setIsProcessing(false);
         onClose();
     };
@@ -27,6 +31,14 @@ const SelfServiceModal: React.FC<SelfServiceModalProps> = ({ isOpen, onClose, av
             alert('Vyberte prosím vozidlo.');
             return;
         }
+        if (!startDate || !endDate) {
+            alert('Vyberte prosím začátek a konec pronájmu.');
+            return;
+        }
+        if (new Date(endDate) <= new Date(startDate)) {
+            alert('Datum konce musí být po datu začátku.');
+            return;
+        }
         if (!customerEmail || !customerEmail.includes('@')) {
             alert('Zadejte prosím platný e-mail zákazníka.');
             return;
@@ -34,7 +46,7 @@ const SelfServiceModal: React.FC<SelfServiceModalProps> = ({ isOpen, onClose, av
 
         setIsProcessing(true);
         try {
-            const reservation = await createPendingReservation(selectedVehicleId);
+            const reservation = await createPendingReservation(selectedVehicleId, new Date(startDate), new Date(endDate));
             const selectedVehicle = availableVehicles.find(v => v.id === selectedVehicleId);
             const link = `${window.location.origin}${window.location.pathname}?portal=${reservation.portalToken}`;
             
@@ -42,7 +54,7 @@ const SelfServiceModal: React.FC<SelfServiceModalProps> = ({ isOpen, onClose, av
             const body = encodeURIComponent(
 `Dobrý den,
 
-děkujeme za Váš zájem o pronájem vozidla ${selectedVehicle?.name}.
+děkujeme za Váš zájem o pronájem vozidla ${selectedVehicle?.name} v termínu od ${new Date(startDate).toLocaleString('cs-CZ')} do ${new Date(endDate).toLocaleString('cs-CZ')}.
 
 Pro dokončení rezervace prosím klikněte na následující odkaz a vyplňte požadované údaje:
 ${link}
@@ -96,8 +108,17 @@ Tým PujcimeDodavky.cz`
                             ))}
                         </select>
                     </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">2. Nastavte termín pronájmu</label>
+                        <div className="grid grid-cols-2 gap-4">
+                            <input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full p-2 border rounded" title="Začátek pronájmu" />
+                            <input type="datetime-local" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full p-2 border rounded" title="Konec pronájmu" />
+                        </div>
+                    </div>
+
                      <div>
-                        <label htmlFor="customer-email" className="block text-sm font-medium text-gray-700 mb-1">2. Zadejte e-mail zákazníka</label>
+                        <label htmlFor="customer-email" className="block text-sm font-medium text-gray-700 mb-1">3. Zadejte e-mail zákazníka</label>
                          <div className="relative">
                             <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                             <input
@@ -118,7 +139,7 @@ Tým PujcimeDodavky.cz`
                     </button>
                     <button
                         onClick={handleGenerateAndSend}
-                        disabled={isProcessing || !selectedVehicleId || !customerEmail}
+                        disabled={isProcessing || !selectedVehicleId || !customerEmail || !startDate || !endDate}
                         className="py-2 px-6 rounded-lg bg-primary text-white font-semibold hover:bg-primary-hover disabled:bg-gray-400 flex items-center"
                     >
                         <Send className="w-4 h-4 mr-2" />

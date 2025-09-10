@@ -89,6 +89,19 @@ const CustomerPortal: React.FC<CustomerPortalProps> = ({ token }) => {
                     <h1 className="text-3xl font-bold text-primary">Van Rental Pro</h1>
                     <p className="text-gray-600 mt-2">Dokončete prosím rezervaci vozidla <span className="font-semibold">{reservation?.vehicle?.name}</span>.</p>
                 </div>
+                
+                {reservation?.startDate && new Date(reservation.startDate).getFullYear() > 1970 && (
+                     <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg text-center mb-6">
+                        <p className="font-semibold text-blue-800">Termín vaší rezervace</p>
+                        <p className="text-gray-700">
+                            <strong>Od:</strong> {new Date(reservation.startDate).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                        <p className="text-gray-700">
+                            <strong>Do:</strong> {new Date(reservation.endDate).toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                    </div>
+                )}
+
 
                 <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-xl p-8 space-y-6">
                     <h2 className="text-xl font-semibold text-gray-800 border-b pb-3">Vaše údaje</h2>

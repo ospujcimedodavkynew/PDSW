@@ -90,8 +90,8 @@ const toReservation = (dbReservation: any): Reservation => ({
     id: dbReservation.id,
     customerId: dbReservation.customer_id,
     vehicleId: dbReservation.vehicle_id,
-    startDate: new Date(dbReservation.start_date),
-    endDate: new Date(dbReservation.end_date),
+    startDate: dbReservation.start_date ? new Date(dbReservation.start_date) : new Date(0),
+    endDate: dbReservation.end_date ? new Date(dbReservation.end_date) : new Date(0),
     status: dbReservation.status,
     portalToken: dbReservation.portal_token,
     notes: dbReservation.notes,
@@ -222,13 +222,15 @@ export const completeReservation = async (reservationId: string, endMileage: num
 };
 
 // Self-service API
-export const createPendingReservation = async (vehicleId: string): Promise<Reservation> => {
+export const createPendingReservation = async (vehicleId: string, startDate: Date, endDate: Date): Promise<Reservation> => {
     const token = `portal-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
     const { data, error } = await getClient()
         .from('reservations')
         .insert({
             customer_id: null,
             vehicle_id: vehicleId,
+            start_date: startDate.toISOString(),
+            end_date: endDate.toISOString(),
             status: 'pending-customer',
             portal_token: token
         })
@@ -308,8 +310,6 @@ export const submitCustomerDetails = async (portalToken: string, customerData: O
         .update({
             customer_id: customerId,
             status: 'scheduled',
-            start_date: new Date().toISOString(),
-            end_date: new Date(new Date().setDate(new Date().getDate() + 1)).toISOString()
         })
         .eq('portal_token', portalToken)
         .select()
