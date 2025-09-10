@@ -412,3 +412,19 @@ export const getFinancials = async (): Promise<FinancialTransaction[]> => {
     handleSupabaseError(error, 'getFinancials');
     return (data || []).map(toFinancialTransaction);
 };
+
+export const addExpense = async (expenseData: { amount: number; date: Date; description: string }): Promise<FinancialTransaction> => {
+    const { data, error } = await getClient()
+        .from('financial_transactions')
+        .insert({
+            reservation_id: null,
+            amount: expenseData.amount,
+            date: expenseData.date.toISOString(),
+            description: expenseData.description,
+            type: 'expense',
+        })
+        .select()
+        .single();
+    handleSupabaseError(error, 'addExpense');
+    return toFinancialTransaction(data);
+};

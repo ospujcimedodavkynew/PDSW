@@ -68,7 +68,7 @@ export interface Contract {
 // Represents a financial transaction
 export interface FinancialTransaction {
     id: string;
-    reservationId: string;
+    reservationId?: string;
     amount: number;
     date: Date;
     description: string;
