@@ -24,7 +24,25 @@ const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({ isOpen,
     }, [isOpen, reservation]);
 
 
-    if (!isOpen || !reservation) return null;
+    if (!isOpen) return null;
+
+    // FIX: Add a guard to prevent rendering with incomplete data, which causes the crash.
+    // This is the most likely cause for the "grey screen" when essential linked data (customer/vehicle) is missing.
+    if (!reservation || !reservation.customer || !reservation.vehicle) {
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+                <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-lg text-center">
+                    <h2 className="text-2xl font-bold text-red-600 mb-4">Chyba dat</h2>
+                    <p className="text-gray-700 mb-6">
+                        Informace o této rezervaci jsou neúplné a nelze je zobrazit. Zkuste prosím obnovit stránku.
+                    </p>
+                    <button onClick={onClose} className="py-2 px-6 rounded-lg bg-gray-300 hover:bg-gray-400">
+                        Zavřít
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     const isDeparture = reservation.status === 'scheduled';
     const isArrival = reservation.status === 'active';

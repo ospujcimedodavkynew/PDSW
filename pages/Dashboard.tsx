@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { getVehicles, getReservations } from '../services/api';
 import { Reservation, Vehicle, Page } from '../types';
-// FIX: Imported Tooltip from recharts
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import { Car, Users, CalendarCheck, AlertTriangle, Link, Clock } from 'lucide-react';
 import ReservationDetailModal from '../components/ReservationDetailModal';
@@ -48,9 +47,16 @@ const Dashboard: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setCurr
     const tomorrow = new Date(today);
     tomorrow.setDate(today.getDate() + 1);
 
-    const todaysDepartures = reservations.filter(r => r.status === 'scheduled' && new Date(r.startDate) >= today && new Date(r.startDate) < tomorrow);
-    const todaysArrivals = reservations.filter(r => r.status === 'active' && new Date(r.endDate) >= today && new Date(r.endDate) < tomorrow);
-    const pendingCustomerReservations = reservations.filter(r => r.status === 'pending-customer');
+    const todaysDepartures = reservations
+        .filter(r => r.status === 'scheduled' && new Date(r.startDate) >= today && new Date(r.startDate) < tomorrow)
+        .map(r => ({ ...r, type: 'departure' as const, time: new Date(r.startDate) }));
+
+    const todaysArrivals = reservations
+        .filter(r => r.status === 'active' && new Date(r.endDate) >= today && new Date(r.endDate) < tomorrow)
+        .map(r => ({ ...r, type: 'arrival' as const, time: new Date(r.endDate) }));
+
+    const todaysActivities = [...todaysDepartures, ...todaysArrivals].sort((a, b) => a.time.getTime() - b.time.getTime());
+
     const maintenanceVehicles = vehicles.filter(v => v.status === 'maintenance');
 
     const handleOpenDetailModal = (reservation: Reservation) => {
@@ -124,52 +130,38 @@ const Dashboard: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setCurr
             </div>
             
             {/* Action Center */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                     <h2 className="text-xl font-bold text-gray-700 mb-4">Čeká na údaje od zákazníka</h2>
-                     {pendingCustomerReservations.length > 0 ? (
-                        <ul className="space-y-3">
-                           {pendingCustomerReservations.map(res => (
-                               <li key={res.id} className="p-3 bg-blue-50 rounded-md">
-                                 <p className="font-semibold">{res.vehicle?.name}</p>
-                                 <p className="text-sm text-blue-700">Odkaz byl vygenerován. Čeká se na vyplnění.</p>
-                               </li>
-                           ))}
-                        </ul>
-                     ) : <p className="text-gray-500">Žádné čekající rezervace.</p>}
-                </div>
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                    <h2 className="text-xl font-bold text-gray-700 mb-4">Dnešní odjezdy</h2>
-                     {todaysDepartures.length > 0 ? (
-                        <ul className="space-y-3">
-                           {todaysDepartures.map(res => (
-                               <li key={res.id} className="flex justify-between items-center p-3 bg-green-50 rounded-md">
-                                 <div>
-                                    <p className="font-semibold">{res.customer?.firstName} {res.customer?.lastName}</p>
-                                    <p className="text-sm text-gray-500">{res.vehicle?.name} - <Clock className="inline w-3 h-3 mr-1"/>{new Date(res.startDate).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}</p>
-                                 </div>
-                                 <button onClick={() => handleOpenDetailModal(res)} className="bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600 text-sm font-semibold">Vydat</button>
-                               </li>
-                           ))}
-                        </ul>
-                     ) : <p className="text-gray-500">Žádné plánované odjezdy.</p>}
-                </div>
-                 <div className="bg-white p-6 rounded-lg shadow-md">
-                    <h2 className="text-xl font-bold text-gray-700 mb-4">Dnešní příjezdy</h2>
-                      {todaysArrivals.length > 0 ? (
-                        <ul className="space-y-3">
-                           {todaysArrivals.map(res => (
-                               <li key={res.id} className="flex justify-between items-center p-3 bg-yellow-50 rounded-md">
-                                  <div>
-                                    <p className="font-semibold">{res.customer?.firstName} {res.customer?.lastName}</p>
-                                    <p className="text-sm text-gray-500">{res.vehicle?.name} - <Clock className="inline w-3 h-3 mr-1"/>{new Date(res.endDate).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}</p>
-                                  </div>
-                                  <button onClick={() => handleOpenDetailModal(res)} className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm font-semibold">Převzít</button>
-                               </li>
-                           ))}
-                        </ul>
-                     ) : <p className="text-gray-500">Žádné plánované příjezdy.</p>}
-                </div>
+            <div className="bg-white p-6 rounded-lg shadow-md">
+                 <h2 className="text-xl font-bold text-gray-700 mb-4">Dnešní aktivity</h2>
+                 {todaysActivities.length > 0 ? (
+                    <ul className="space-y-3">
+                       {todaysActivities.map(res => (
+                           <li key={res.id} className={`flex justify-between items-center p-3 rounded-md ${res.type === 'departure' ? 'bg-green-50' : 'bg-yellow-50'}`}>
+                             <div>
+                                <p className="font-semibold">{res.customer?.firstName} {res.customer?.lastName}</p>
+                                <p className="text-sm text-gray-500">{res.vehicle?.name} - <Clock className="inline w-3 h-3 mr-1"/>{res.time.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}</p>
+                             </div>
+                             {res.type === 'departure' ? (
+                                <button
+                                    onClick={() => handleOpenDetailModal(res)}
+                                    disabled={res.vehicle?.status !== 'available'}
+                                    className={`px-3 py-1 rounded text-sm font-semibold text-white transition-colors ${
+                                        res.vehicle?.status === 'available'
+                                        ? 'bg-green-500 hover:bg-green-600'
+                                        : 'bg-gray-400 cursor-not-allowed'
+                                    }`}
+                                    title={res.vehicle?.status !== 'available' ? 'Vozidlo není k dispozici (je pronajaté nebo v servisu)' : 'Vydat vozidlo'}
+                                >
+                                    {res.vehicle?.status === 'available' ? 'Vydat' : 'Blokováno'}
+                                </button>
+                             ) : (
+                                <button onClick={() => handleOpenDetailModal(res)} className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm font-semibold">
+                                    Převzít
+                                </button>
+                             )}
+                           </li>
+                       ))}
+                    </ul>
+                 ) : <p className="text-gray-500">Dnes nejsou plánované žádné odjezdy ani příjezdy.</p>}
             </div>
         </div>
     );

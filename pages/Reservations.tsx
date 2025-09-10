@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
-import { getVehicles, getCustomers, addCustomer, addReservation, addContract } from '../services/api';
+import { getVehicles, getCustomers, getReservations, addCustomer, addReservation, addContract } from '../services/api';
 import type { Reservation, Vehicle, Customer } from '../types';
 import { UserPlus, Car, Calendar as CalendarIcon, Clock, Signature } from 'lucide-react';
 
@@ -113,12 +113,12 @@ const Reservations: React.FC = () => {
     // Data states
     const [vehicles, setVehicles] = useState<Vehicle[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
+    const [reservations, setReservations] = useState<Reservation[]>([]);
     const [loading, setLoading] = useState(true);
 
     // Form states
     const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
     const [isNewCustomer, setIsNewCustomer] = useState(false);
-    // FIX: Added 'address' to the initial state to match the Customer type.
     const [newCustomerData, setNewCustomerData] = useState<Omit<Customer, 'id'>>({ firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: '' });
     const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
     const [startDate, setStartDate] = useState('');
@@ -131,9 +131,10 @@ const Reservations: React.FC = () => {
         const fetchData = async () => {
             setLoading(true);
             try {
-                const [vehData, custData] = await Promise.all([getVehicles(), getCustomers()]);
+                const [vehData, custData, resData] = await Promise.all([getVehicles(), getCustomers(), getReservations()]);
                 setVehicles(vehData);
                 setCustomers(custData);
+                setReservations(resData);
             } catch (error) {
                 console.error("Failed to fetch data:", error);
             } finally {
@@ -146,7 +147,31 @@ const Reservations: React.FC = () => {
     // Memoized calculations for performance
     const selectedCustomer = useMemo(() => customers.find(c => c.id === selectedCustomerId), [customers, selectedCustomerId]);
     const selectedVehicle = useMemo(() => vehicles.find(v => v.id === selectedVehicleId), [vehicles, selectedVehicleId]);
-    const availableVehicles = useMemo(() => vehicles.filter(v => v.status === 'available'), [vehicles]);
+    
+    const availableVehicles = useMemo(() => {
+        if (!startDate || !endDate) {
+            return []; // Don't show any vehicles until a date range is selected
+        }
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        if (end <= start) {
+            return []; // Invalid date range
+        }
+        const conflictingVehicleIds = new Set<string>();
+        for (const r of reservations) {
+            // Check only against reservations that will be active or are scheduled
+            if (r.status === 'scheduled' || r.status === 'active') {
+                const resStart = new Date(r.startDate);
+                const resEnd = new Date(r.endDate);
+                if (start < resEnd && end > resStart) {
+                    conflictingVehicleIds.add(r.vehicleId);
+                }
+            }
+        }
+        // A vehicle is available if it's not in maintenance and doesn't have a conflicting reservation
+        return vehicles.filter(v => v.status !== 'maintenance' && !conflictingVehicleIds.has(v.id));
+    }, [vehicles, reservations, startDate, endDate]);
+
 
     const totalPrice = useMemo(() => {
         if (!selectedVehicle || !startDate || !endDate) return 0;
@@ -188,12 +213,15 @@ const Reservations: React.FC = () => {
         
         // Validation
         if (!isNewCustomer && !selectedCustomerId) { alert("Vyberte prosím zákazníka."); return; }
-        // FIX: Added address check to validation.
         if (isNewCustomer && (!newCustomerData.firstName || !newCustomerData.lastName || !newCustomerData.email || !newCustomerData.address)) { alert("Vyplňte prosím údaje o novém zákazníkovi."); return; }
         if (!selectedVehicleId) { alert("Vyberte prosím vozidlo."); return; }
         if (!startDate || !endDate) { alert("Vyberte prosím období pronájmu."); return; }
         if (new Date(endDate) <= new Date(startDate)) { alert("Datum konce musí být po datu začátku."); return; }
         if (signaturePadRef.current?.isEmpty()) { alert("Zákazník se musí podepsat."); return; }
+        if (!availableVehicles.some(v => v.id === selectedVehicleId)) {
+            alert("Vybrané vozidlo není v tomto termínu dostupné. Zvolte prosím jiné vozidlo nebo termín.");
+            return;
+        }
 
         try {
             setLoading(true);
@@ -292,7 +320,6 @@ Tato smlouva je vyhotovena elektronicky. Nájemce svým digitálním podpisem st
             // Reset form
             setSelectedCustomerId('');
             setIsNewCustomer(false);
-            // FIX: Added 'address' to the form reset to match the Customer type.
             setNewCustomerData({ firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: '' });
             setSelectedVehicleId('');
             setStartDate('');
@@ -307,7 +334,7 @@ Tato smlouva je vyhotovena elektronicky. Nájemce svým digitálním podpisem st
         }
     };
     
-    if (loading && vehicles.length === 0) return <div>Načítání...</div>;
+    if (loading && customers.length === 0) return <div>Načítání...</div>;
 
     return (
         <form onSubmit={handleSubmit} className="space-y-8">
@@ -341,7 +368,6 @@ Tato smlouva je vyhotovena elektronicky. Nájemce svým digitálním podpisem st
                                     <input type="text" placeholder="Příjmení" value={newCustomerData.lastName} onChange={e => setNewCustomerData({...newCustomerData, lastName: e.target.value})} className="w-full p-2 border rounded" required />
                                 </div>
                                 <input type="email" placeholder="Email" value={newCustomerData.email} onChange={e => setNewCustomerData({...newCustomerData, email: e.target.value})} className="w-full p-2 border rounded" required />
-                                {/* FIX: Added input for customer address. */}
                                 <input type="text" placeholder="Adresa" value={newCustomerData.address} onChange={e => setNewCustomerData({...newCustomerData, address: e.target.value})} className="w-full p-2 border rounded" required />
                                 <div className="grid grid-cols-2 gap-4">
                                      <input type="tel" placeholder="Telefon" value={newCustomerData.phone} onChange={e => setNewCustomerData({...newCustomerData, phone: e.target.value})} className="w-full p-2 border rounded" required />
@@ -350,33 +376,18 @@ Tato smlouva je vyhotovena elektronicky. Nájemce svým digitálním podpisem st
                             </div>
                         )}
                     </section>
-
-                    {/* Vehicle Section */}
-                     <section>
-                        <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4"><Car className="mr-2"/>2. Vozidlo</h2>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                            {availableVehicles.map(v => (
-                                <div key={v.id} onClick={() => setSelectedVehicleId(v.id)} className={`border-2 rounded-lg p-3 cursor-pointer ${selectedVehicleId === v.id ? 'border-primary shadow-lg' : 'border-gray-200 hover:border-blue-300'}`}>
-                                    <img src={v.imageUrl} alt={v.name} className="w-full h-24 object-cover rounded-md mb-2"/>
-                                    <h3 className="font-semibold">{v.name}</h3>
-                                    <p className="text-xs text-gray-500">{v.rate4h.toLocaleString('cs-CZ')} Kč/4h | {v.rate12h.toLocaleString('cs-CZ')} Kč/12h</p>
-                                    <p className="text-sm text-gray-700 font-bold">{v.dailyRate.toLocaleString('cs-CZ')} Kč/den</p>
-                                </div>
-                            ))}
-                        </div>
-                    </section>
                     
-                     {/* Date & Time Section */}
+                    {/* Date & Time Section */}
                     <section>
-                        <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4"><CalendarIcon className="mr-2"/>3. Doba pronájmu</h2>
+                        <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4"><CalendarIcon className="mr-2"/>2. Doba pronájmu</h2>
                         <div className="grid grid-cols-2 gap-4 mb-3">
                             <div>
                                 <label className="block text-sm font-medium">Od (datum a čas)</label>
-                                <input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full p-2 border rounded" required />
+                                <input type="datetime-local" value={startDate} onChange={e => { setSelectedVehicleId(''); setStartDate(e.target.value); }} className="w-full p-2 border rounded" required />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium">Do (datum a čas)</label>
-                                <input type="datetime-local" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full p-2 border rounded" required />
+                                <input type="datetime-local" value={endDate} onChange={e => { setSelectedVehicleId(''); setEndDate(e.target.value); }} className="w-full p-2 border rounded" required />
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -390,6 +401,31 @@ Tato smlouva je vyhotovena elektronicky. Nájemce svým digitálním podpisem st
                         </div>
                     </section>
                     
+                    {/* Vehicle Section */}
+                     <section>
+                        <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4"><Car className="mr-2"/>3. Vozidlo</h2>
+                        {!startDate || !endDate ? (
+                            <div className="text-center p-6 bg-gray-50 rounded-md border">
+                                <p className="text-gray-600 font-medium">Nejprve prosím vyberte dobu pronájmu pro zobrazení dostupných vozidel.</p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                {availableVehicles.length > 0 ? availableVehicles.map(v => (
+                                    <div key={v.id} onClick={() => setSelectedVehicleId(v.id)} className={`border-2 rounded-lg p-3 cursor-pointer transition-all ${selectedVehicleId === v.id ? 'border-primary shadow-lg scale-105' : 'border-gray-200 hover:border-blue-300'}`}>
+                                        <img src={v.imageUrl} alt={v.name} className="w-full h-24 object-cover rounded-md mb-2"/>
+                                        <h3 className="font-semibold">{v.name}</h3>
+                                        <p className="text-xs text-gray-500">{v.rate4h.toLocaleString('cs-CZ')} Kč/4h | {v.rate12h.toLocaleString('cs-CZ')} Kč/12h</p>
+                                        <p className="text-sm text-gray-700 font-bold">{v.dailyRate.toLocaleString('cs-CZ')} Kč/den</p>
+                                    </div>
+                                )) : (
+                                    <div className="col-span-full text-center p-6 bg-yellow-50 rounded-md border border-yellow-200">
+                                        <p className="text-yellow-800 font-medium">Pro zadaný termín nejsou dostupná žádná vozidla.</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </section>
+
                     {/* Signature Section */}
                     <section>
                          <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4"><Signature className="mr-2"/>4. Podpis zákazníka</h2>
