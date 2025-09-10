@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { getVehicles, getReservations } from '../services/api';
 import { Reservation, Vehicle, Page } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
-import { Car, Users, CalendarCheck, AlertTriangle, Link, Clock } from 'lucide-react';
+import { Car, Users, CalendarCheck, AlertTriangle, Link, Clock, ArrowRightLeft } from 'lucide-react';
 import ReservationDetailModal from '../components/ReservationDetailModal';
 import SelfServiceModal from '../components/SelfServiceModal';
 
@@ -56,6 +56,8 @@ const Dashboard: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setCurr
         .map(r => ({ ...r, type: 'arrival' as const, time: new Date(r.endDate) }));
 
     const todaysActivities = [...todaysDepartures, ...todaysArrivals].sort((a, b) => a.time.getTime() - b.time.getTime());
+
+    const activeRentals = reservations.filter(r => r.status === 'active');
 
     const maintenanceVehicles = vehicles.filter(v => v.status === 'maintenance');
 
@@ -130,38 +132,62 @@ const Dashboard: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setCurr
             </div>
             
             {/* Action Center */}
-            <div className="bg-white p-6 rounded-lg shadow-md">
-                 <h2 className="text-xl font-bold text-gray-700 mb-4">Dnešní aktivity</h2>
-                 {todaysActivities.length > 0 ? (
-                    <ul className="space-y-3">
-                       {todaysActivities.map(res => (
-                           <li key={res.id} className={`flex justify-between items-center p-3 rounded-md ${res.type === 'departure' ? 'bg-green-50' : 'bg-yellow-50'}`}>
-                             <div>
-                                <p className="font-semibold">{res.customer?.firstName} {res.customer?.lastName}</p>
-                                <p className="text-sm text-gray-500">{res.vehicle?.name} - <Clock className="inline w-3 h-3 mr-1"/>{res.time.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}</p>
-                             </div>
-                             {res.type === 'departure' ? (
-                                <button
-                                    onClick={() => handleOpenDetailModal(res)}
-                                    disabled={res.vehicle?.status !== 'available'}
-                                    className={`px-3 py-1 rounded text-sm font-semibold text-white transition-colors ${
-                                        res.vehicle?.status === 'available'
-                                        ? 'bg-green-500 hover:bg-green-600'
-                                        : 'bg-gray-400 cursor-not-allowed'
-                                    }`}
-                                    title={res.vehicle?.status !== 'available' ? 'Vozidlo není k dispozici (je pronajaté nebo v servisu)' : 'Vydat vozidlo'}
-                                >
-                                    {res.vehicle?.status === 'available' ? 'Vydat' : 'Blokováno'}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                     <h2 className="text-xl font-bold text-gray-700 mb-4">Dnešní aktivity</h2>
+                     {todaysActivities.length > 0 ? (
+                        <ul className="space-y-3">
+                           {todaysActivities.map(res => (
+                               <li key={res.id} className={`flex justify-between items-center p-3 rounded-md ${res.type === 'departure' ? 'bg-green-50' : 'bg-yellow-50'}`}>
+                                 <div>
+                                    <p className="font-semibold">{res.customer?.firstName} {res.customer?.lastName}</p>
+                                    <p className="text-sm text-gray-500">{res.vehicle?.name} - <Clock className="inline w-3 h-3 mr-1"/>{res.time.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}</p>
+                                 </div>
+                                 {res.type === 'departure' ? (
+                                    <button
+                                        onClick={() => handleOpenDetailModal(res)}
+                                        disabled={res.vehicle?.status !== 'available'}
+                                        className={`px-3 py-1 rounded text-sm font-semibold text-white transition-colors ${
+                                            res.vehicle?.status === 'available'
+                                            ? 'bg-green-500 hover:bg-green-600'
+                                            : 'bg-gray-400 cursor-not-allowed'
+                                        }`}
+                                        title={res.vehicle?.status !== 'available' ? 'Vozidlo není k dispozici (je pronajaté nebo v servisu)' : 'Vydat vozidlo'}
+                                    >
+                                        {res.vehicle?.status === 'available' ? 'Vydat' : 'Blokováno'}
+                                    </button>
+                                 ) : (
+                                    <button onClick={() => handleOpenDetailModal(res)} className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm font-semibold">
+                                        Převzít
+                                    </button>
+                                 )}
+                               </li>
+                           ))}
+                        </ul>
+                     ) : <p className="text-gray-500">Dnes nejsou plánované žádné odjezdy ani příjezdy.</p>}
+                </div>
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h2 className="text-xl font-bold text-gray-700 mb-4 flex items-center">
+                        <ArrowRightLeft className="mr-2 text-blue-600" /> Právě probíhající pronájmy
+                    </h2>
+                     {activeRentals.length > 0 ? (
+                        <ul className="space-y-3">
+                           {activeRentals.map(res => (
+                               <li key={res.id} className="flex justify-between items-center p-3 rounded-md bg-blue-50">
+                                 <div>
+                                    <p className="font-semibold">{res.customer?.firstName} {res.customer?.lastName}</p>
+                                    <p className="text-sm text-gray-500">
+                                        {res.vehicle?.name} | Plánovaný návrat: {new Date(res.endDate).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'numeric' })} v {new Date(res.endDate).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}
+                                    </p>
+                                 </div>
+                                 <button onClick={() => handleOpenDetailModal(res)} className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm font-semibold">
+                                    Převzít vozidlo
                                 </button>
-                             ) : (
-                                <button onClick={() => handleOpenDetailModal(res)} className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm font-semibold">
-                                    Převzít
-                                </button>
-                             )}
-                           </li>
-                       ))}
-                    </ul>
-                 ) : <p className="text-gray-500">Dnes nejsou plánované žádné odjezdy ani příjezdy.</p>}
+                               </li>
+                           ))}
+                        </ul>
+                    ) : <p className="text-gray-500">Aktuálně nejsou žádná vozidla pronajata.</p>}
+                </div>
             </div>
         </div>
     );
