@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { Page } from '../types';
 import { LayoutDashboard, Car, Users, Calendar, FileText, DollarSign, LogOut } from 'lucide-react';
@@ -30,11 +31,11 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage }) => {
     };
 
     return (
-        <div className="w-64 bg-primary text-light-text flex flex-col">
-            <div className="p-6 text-2xl font-bold border-b border-blue-800">
+        <div className="w-64 bg-primary text-light-text flex flex-col h-screen">
+            <div className="p-6 text-2xl font-bold border-b border-blue-800 flex-shrink-0">
                 Van Rental Pro
             </div>
-            <nav className="flex-1 px-4 py-6">
+            <nav className="flex-1 px-4 py-6 overflow-y-auto">
                 {navItems.map(({ page, label, icon: Icon }) => (
                     <button
                         key={page}
@@ -52,7 +53,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage }) => {
             </nav>
 
             {/* Logout Button */}
-            <div className="px-4 py-4 border-t border-blue-800">
+            <div className="px-4 py-4 border-t border-blue-800 flex-shrink-0">
                  <button
                     onClick={handleSignOut}
                     className="w-full flex items-center px-4 py-3 rounded-lg text-blue-200 hover:bg-blue-800 hover:text-white transition-colors duration-200"
