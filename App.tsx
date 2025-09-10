@@ -28,7 +28,7 @@ const ConfigError = () => (
 
 
 function App() {
-  if (!areSupabaseCredentialsSet()) {
+  if (!areSupabaseCredentialsSet) {
     return <ConfigError />;
   }
   
