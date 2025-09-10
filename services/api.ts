@@ -42,7 +42,7 @@ const toVehicle = (dbVehicle: any): Vehicle => ({
     year: dbVehicle.year,
     licensePlate: dbVehicle.license_plate,
     status: dbVehicle.status,
-    imageUrl: dbVehicle.image_url,
+    imageUrl: dbVehicle.image_url || `https://placehold.co/600x400/e2e8f0/475569?text=${encodeURIComponent(dbVehicle.name || 'Vozidlo')}`,
     rate4h: dbVehicle.rate4h,
     rate12h: dbVehicle.rate12h,
     dailyRate: dbVehicle.daily_rate,
@@ -95,8 +95,8 @@ const toReservation = (dbReservation: any): Reservation => ({
     status: dbReservation.status,
     portalToken: dbReservation.portal_token,
     notes: dbReservation.notes,
-    customer: dbReservation.customers ? toCustomer(dbReservation.customers) : (dbReservation.customer ? toCustomer(dbReservation.customer) : undefined),
-    vehicle: dbReservation.vehicles ? toVehicle(dbReservation.vehicles) : (dbReservation.vehicle ? toVehicle(dbReservation.vehicle) : undefined),
+    customer: dbReservation.customers ? toCustomer(dbReservation.customers) : undefined,
+    vehicle: dbReservation.vehicles ? toVehicle(dbReservation.vehicles) : undefined,
     startMileage: dbReservation.start_mileage,
     endMileage: dbReservation.end_mileage,
 });
@@ -108,8 +108,8 @@ const toContract = (dbContract: any): Contract => ({
     vehicleId: dbContract.vehicle_id,
     generatedAt: new Date(dbContract.generated_at),
     contractText: dbContract.contract_text,
-    customer: dbContract.customer ? toCustomer(dbContract.customer) : undefined,
-    vehicle: dbContract.vehicle ? toVehicle(dbContract.vehicle) : undefined,
+    customer: dbContract.customers ? toCustomer(dbContract.customers) : undefined,
+    vehicle: dbContract.vehicles ? toVehicle(dbContract.vehicles) : undefined,
 });
 
 
@@ -168,7 +168,7 @@ export const updateCustomer = async (updatedCustomer: Customer): Promise<Custome
 export const getReservations = async (): Promise<Reservation[]> => {
     const { data, error } = await getClient()
         .from('reservations')
-        .select('*, customer:customers(*), vehicle:vehicles(*)');
+        .select('*, customers(*), vehicles(*)');
     handleSupabaseError(error, 'getReservations');
     return (data || []).map(toReservation);
 };
@@ -241,7 +241,7 @@ export const createPendingReservation = async (vehicleId: string): Promise<Reser
 export const getReservationByToken = async (token: string): Promise<Reservation | undefined> => {
     const { data, error } = await getClient()
         .from('reservations')
-        .select('*, vehicle:vehicles(*)')
+        .select('*, vehicles(*)')
         .eq('portal_token', token)
         .single();
     
@@ -297,7 +297,7 @@ export const submitCustomerDetails = async (portalToken: string, customerData: O
 export const getContracts = async (): Promise<Contract[]> => {
     const { data, error } = await getClient()
         .from('contracts')
-        .select('*, customer:customers(*), vehicle:vehicles(*)')
+        .select('*, customers(*), vehicles(*)')
         .order('generated_at', { ascending: false });
     handleSupabaseError(error, 'getContracts');
     return (data || []).map(toContract);

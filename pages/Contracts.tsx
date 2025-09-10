@@ -1,4 +1,5 @@
 
+
 import React, { useEffect, useState } from 'react';
 import { getContracts } from '../services/api';
 import type { Contract } from '../types';
@@ -92,7 +93,7 @@ const Contracts: React.FC = () => {
                                     <td className="px-5 py-4 text-sm text-gray-500 font-mono">{contract.id.substring(0, 8)}...</td>
                                     <td className="px-5 py-4">{contract.customer?.firstName} {contract.customer?.lastName}</td>
                                     <td className="px-5 py-4">{contract.vehicle?.name}</td>
-                                    <td className="px-5 py-4">{contract.generatedAt.toLocaleDateString('cs-CZ')}</td>
+                                    <td className="px-5 py-4">{new Date(contract.generatedAt).toLocaleDateString('cs-CZ')}</td>
                                     <td className="px-5 py-4">
                                         <button onClick={() => setSelectedContract(contract)} className="text-primary hover:text-primary-hover font-semibold">Zobrazit</button>
                                     </td>
