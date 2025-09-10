@@ -10,6 +10,8 @@ interface ReservationDetailModalProps {
 }
 
 const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({ isOpen, onClose, reservation }) => {
+    // --- HOOKS ---
+    // All hooks must be called at the top level, before any conditional returns, to prevent React errors.
     const [notes, setNotes] = useState('');
     const [startMileage, setStartMileage] = useState<string>('');
     const [endMileage, setEndMileage] = useState<string>('');
@@ -23,10 +25,30 @@ const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({ isOpen,
         }
     }, [isOpen, reservation]);
 
+    const isArrival = reservation?.status === 'active';
 
+    const calculations = useMemo(() => {
+        if (!isArrival || !reservation) {
+            return { kmDriven: 0, rentalDays: 0, kmLimit: 0, kmOver: 0, extraCharge: 0 };
+        }
+        
+        const startKm = reservation.startMileage || 0;
+        const endKm = Number(endMileage) || 0;
+        const kmDriven = endKm > startKm ? endKm - startKm : 0;
+
+        const durationMs = new Date(reservation.endDate).getTime() - new Date(reservation.startDate).getTime();
+        const rentalDays = Math.max(1, Math.ceil(durationMs / (1000 * 60 * 60 * 24)));
+        const kmLimit = rentalDays * 300;
+        const kmOver = Math.max(0, kmDriven - kmLimit);
+        const extraCharge = kmOver * 3;
+
+        return { kmDriven, rentalDays, kmLimit, kmOver, extraCharge };
+    }, [reservation, endMileage, isArrival]);
+    
+    // --- CONDITIONAL RENDERING ---
+    // Now we can safely return early if the component isn't visible or data is not ready.
     if (!isOpen) return null;
 
-    // Guard against null or undefined reservation prop, which can cause a crash
     if (!reservation) {
         return (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
@@ -35,7 +57,6 @@ const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({ isOpen,
         );
     }
     
-    // Guard against incomplete data from the database
     if (!reservation.customer || !reservation.vehicle) {
         return (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
@@ -52,8 +73,8 @@ const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({ isOpen,
         );
     }
 
+    // --- REMAINING LOGIC & RENDER ---
     const isDeparture = reservation.status === 'scheduled';
-    const isArrival = reservation.status === 'active';
 
     const handleAction = async () => {
         setIsProcessing(true);
@@ -94,22 +115,6 @@ Poplatek za překročení: ${extraCharge.toLocaleString('cs-CZ')} Kč
             setIsProcessing(false);
         }
     };
-    
-    const calculations = useMemo(() => {
-        if (!isArrival) return { kmDriven: 0, rentalDays: 0, kmLimit: 0, kmOver: 0, extraCharge: 0 };
-        
-        const startKm = reservation.startMileage || 0;
-        const endKm = Number(endMileage) || 0;
-        const kmDriven = endKm > startKm ? endKm - startKm : 0;
-
-        const durationMs = new Date(reservation.endDate).getTime() - new Date(reservation.startDate).getTime();
-        const rentalDays = Math.max(1, Math.ceil(durationMs / (1000 * 60 * 60 * 24)));
-        const kmLimit = rentalDays * 300;
-        const kmOver = Math.max(0, kmDriven - kmLimit);
-        const extraCharge = kmOver * 3;
-
-        return { kmDriven, rentalDays, kmLimit, kmOver, extraCharge };
-    }, [reservation, endMileage, isArrival]);
     
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
