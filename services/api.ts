@@ -253,34 +253,60 @@ export const getReservationByToken = async (token: string): Promise<Reservation 
 }
 
 export const submitCustomerDetails = async (portalToken: string, customerData: Omit<Customer, 'id' | 'driverLicenseImageUrl'>, driverLicenseImage: File): Promise<Reservation> => {
-    // 1. Nahrát obrázek do Supabase Storage
-    const filePath = `public/${portalToken}-${driverLicenseImage.name}`;
-    const { error: uploadError } = await getClient().storage
+    const client = getClient();
+    let customerId: string;
+
+    // 1. Zjistit, zda zákazník již existuje podle e-mailu
+    const { data: existingCustomer, error: findError } = await client
+        .from('customers')
+        .select('id')
+        .eq('email', customerData.email)
+        .single();
+
+    if (existingCustomer) {
+        // Zákazník existuje, použijeme jeho ID
+        customerId = existingCustomer.id;
+    } else if (findError && findError.code === 'PGRST116') { // PGRST116 = 'exact one row not found', což je v pořádku
+        // Zákazník neexistuje, vytvoříme nového
+        const { data: newCustomer, error: createError } = await client
+            .from('customers')
+            .insert(fromCustomer(customerData))
+            .select('id')
+            .single();
+        handleSupabaseError(createError, 'submitCustomerDetails - create customer');
+        customerId = newCustomer.id;
+    } else {
+        // Jiná chyba při hledání zákazníka
+        handleSupabaseError(findError, 'submitCustomerDetails - find customer');
+        throw new Error("Could not find or create customer.");
+    }
+    
+    // 2. Nahrát obrázek s unikátním názvem (ID zákazníka + časová značka)
+    const filePath = `${customerId}/${Date.now()}-${driverLicenseImage.name}`;
+    const { error: uploadError } = await client.storage
         .from('licenses')
-        .upload(filePath, driverLicenseImage);
+        .upload(filePath, driverLicenseImage, {
+            // upsert: true by přepsalo stávající, ale náš název je už unikátní
+        });
     handleSupabaseError(uploadError, 'submitCustomerDetails - image upload');
 
-    // 2. Získat veřejnou URL obrázku
-    const { data: { publicUrl } } = getClient().storage
+    // 3. Získat veřejnou URL a aktualizovat záznam zákazníka
+    const { data: { publicUrl } } = client.storage
         .from('licenses')
         .getPublicUrl(filePath);
 
-    // 3. Vytvořit nového zákazníka s URL obrázku
-    const customerToInsert = fromCustomer(customerData);
-    customerToInsert.driver_license_image_url = publicUrl;
-
-    const { data: newCustomer, error: customerError } = await getClient()
+    const { error: updateCustomerError } = await client
         .from('customers')
-        .insert(customerToInsert)
-        .select()
-        .single();
-    handleSupabaseError(customerError, 'submitCustomerDetails - create customer');
+        .update({ driver_license_image_url: publicUrl })
+        .eq('id', customerId);
+    handleSupabaseError(updateCustomerError, 'submitCustomerDetails - update customer with image URL');
 
-    // 4. Aktualizovat rezervaci s ID nového zákazníka a změnit status
-    const { data: updatedReservation, error: reservationError } = await getClient()
+
+    // 4. Aktualizovat rezervaci s ID zákazníka a změnit status
+    const { data: updatedReservation, error: reservationError } = await client
         .from('reservations')
         .update({
-            customer_id: newCustomer.id,
+            customer_id: customerId,
             status: 'scheduled',
             start_date: new Date().toISOString(),
             end_date: new Date(new Date().setDate(new Date().getDate() + 1)).toISOString()
