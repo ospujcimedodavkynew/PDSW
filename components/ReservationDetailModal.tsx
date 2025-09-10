@@ -26,15 +26,23 @@ const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({ isOpen,
 
     if (!isOpen) return null;
 
-    // FIX: Add a guard to prevent rendering with incomplete data, which causes the crash.
-    // This is the most likely cause for the "grey screen" when essential linked data (customer/vehicle) is missing.
-    if (!reservation || !reservation.customer || !reservation.vehicle) {
+    // Guard against null or undefined reservation prop, which can cause a crash
+    if (!reservation) {
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+                <div className="bg-white rounded-lg p-8">Načítání detailu rezervace...</div>
+            </div>
+        );
+    }
+    
+    // Guard against incomplete data from the database
+    if (!reservation.customer || !reservation.vehicle) {
         return (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
                 <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-lg text-center">
                     <h2 className="text-2xl font-bold text-red-600 mb-4">Chyba dat</h2>
                     <p className="text-gray-700 mb-6">
-                        Informace o této rezervaci jsou neúplné a nelze je zobrazit. Zkuste prosím obnovit stránku.
+                        Informace o této rezervaci jsou neúplné (chybí záznam o zákazníkovi nebo vozidle). Zkontrolujte prosím data v databázi pro rezervaci ID: <code className="text-sm bg-red-100 p-1 rounded">{reservation.id}</code>
                     </p>
                     <button onClick={onClose} className="py-2 px-6 rounded-lg bg-gray-300 hover:bg-gray-400">
                         Zavřít
@@ -117,8 +125,8 @@ Poplatek za překročení: ${extraCharge.toLocaleString('cs-CZ')} Kč
                 <div className="space-y-4">
                     <div>
                         <h3 className="font-semibold text-gray-500">Zákazník</h3>
-                        <p className="text-lg">{reservation.customer?.firstName} {reservation.customer?.lastName}</p>
-                         {reservation.customer?.driverLicenseImageUrl && (
+                        <p className="text-lg">{reservation.customer.firstName} {reservation.customer.lastName}</p>
+                         {reservation.customer.driverLicenseImageUrl && (
                              <a href={reservation.customer.driverLicenseImageUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline flex items-center mt-1">
                                 <FileText className="w-4 h-4 mr-1"/> Zobrazit řidičský průkaz
                             </a>
@@ -126,7 +134,7 @@ Poplatek za překročení: ${extraCharge.toLocaleString('cs-CZ')} Kč
                     </div>
                      <div>
                         <h3 className="font-semibold text-gray-500">Vozidlo</h3>
-                        <p className="text-lg">{reservation.vehicle?.name} ({reservation.vehicle?.licensePlate})</p>
+                        <p className="text-lg">{reservation.vehicle.name} ({reservation.vehicle.licensePlate})</p>
                     </div>
                      <div>
                         <h3 className="font-semibold text-gray-500">Období</h3>
