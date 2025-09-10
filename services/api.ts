@@ -47,7 +47,7 @@ const toVehicle = (dbVehicle: any): Vehicle => ({
     rate12h: dbVehicle.rate12h,
     dailyRate: dbVehicle.daily_rate,
     features: dbVehicle.features || [],
-    currentMileage: dbVehicle.current_mileage,
+    currentMileage: dbVehicle.current_mileage ?? 0,
 });
 
 const fromVehicle = (vehicle: Partial<Vehicle>) => ({

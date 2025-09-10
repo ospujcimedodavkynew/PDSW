@@ -263,7 +263,7 @@ V případě poškození vozidla zaviněného nájemcem se sjednává spoluúča
 
 Článek VI. - Stav kilometrů a limit
 -----------------------------------------
-Počáteční stav kilometrů: ${selectedVehicle?.currentMileage.toLocaleString('cs-CZ')} km
+Počáteční stav kilometrů: ${(selectedVehicle?.currentMileage ?? 0).toLocaleString('cs-CZ')} km
 Denní limit pro nájezd je 300 km. Za každý kilometr nad tento limit (vypočítaný jako 300 km * počet dní pronájmu) bude účtován poplatek 3 Kč/km.
 
 Článek VII. - Závěrečná ustanovení
