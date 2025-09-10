@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
-import { getVehicles, getCustomers, addCustomer, addReservation } from '../services/api';
+import { getVehicles, getCustomers, addCustomer, addReservation, addContract } from '../services/api';
 import type { Reservation, Vehicle, Customer } from '../types';
 import { UserPlus, Car, Calendar as CalendarIcon, Clock, Signature } from 'lucide-react';
 
@@ -188,8 +188,8 @@ const Reservations: React.FC = () => {
         
         // Validation
         if (!isNewCustomer && !selectedCustomerId) { alert("Vyberte prosím zákazníka."); return; }
-        // FIX: Added comprehensive check for all required new customer fields.
-        if (isNewCustomer && (!newCustomerData.firstName || !newCustomerData.lastName || !newCustomerData.email || !newCustomerData.address || !newCustomerData.phone || !newCustomerData.driverLicenseNumber)) { alert("Vyplňte prosím všechny povinné údaje o novém zákazníkovi."); return; }
+        // FIX: Added address check to validation.
+        if (isNewCustomer && (!newCustomerData.firstName || !newCustomerData.lastName || !newCustomerData.email || !newCustomerData.address)) { alert("Vyplňte prosím údaje o novém zákazníkovi."); return; }
         if (!selectedVehicleId) { alert("Vyberte prosím vozidlo."); return; }
         if (!startDate || !endDate) { alert("Vyberte prosím období pronájmu."); return; }
         if (new Date(endDate) <= new Date(startDate)) { alert("Datum konce musí být po datu začátku."); return; }
@@ -211,14 +211,14 @@ const Reservations: React.FC = () => {
                 throw new Error("Nepodařilo se nalézt data zákazníka.");
             }
 
-            await addReservation({
+            const newReservation = await addReservation({
                 customerId: finalCustomerId,
                 vehicleId: selectedVehicleId,
                 startDate: new Date(startDate),
                 endDate: new Date(endDate),
             });
 
-            // Generate contract and mailto link
+            // Generate contract text
             const contractText = `
 SMLOUVA O NÁJMU DOPRAVNÍHO PROSTŘEDKU
 =========================================
@@ -265,13 +265,24 @@ V případě poškození vozidla zaviněného nájemcem se sjednává spoluúča
 -----------------------------------------
 Tato smlouva je vyhotovena elektronicky. Nájemce svým digitálním podpisem stvrzuje, že se seznámil s obsahem smlouvy, souhlasí s ním a vozidlo v uvedeném stavu přebírá.
             `;
+            
+            // Save contract to database
+            await addContract({
+                reservationId: newReservation.id,
+                customerId: finalCustomerId,
+                vehicleId: selectedVehicleId,
+                generatedAt: new Date(),
+                contractText: contractText
+            });
 
+            // Generate and open mailto link with BCC
+            const bccEmail = "smlouvydodavky@gmail.com";
             const mailtoBody = encodeURIComponent(contractText);
-            const mailtoLink = `mailto:${customerForContract.email}?subject=${encodeURIComponent(`Smlouva o pronájmu vozidla ${selectedVehicle?.name}`)}&body=${mailtoBody}`;
+            const mailtoLink = `mailto:${customerForContract.email}?bcc=${bccEmail}&subject=${encodeURIComponent(`Smlouva o pronájmu vozidla ${selectedVehicle?.name}`)}&body=${mailtoBody}`;
             
             window.location.href = mailtoLink;
 
-            alert("Rezervace byla úspěšně vytvořena! Nyní budete přesměrováni do emailového klienta pro odeslání smlouvy.");
+            alert("Rezervace byla úspěšně vytvořena a smlouva uložena! Nyní budete přesměrováni do emailového klienta pro odeslání smlouvy.");
             
             // Reset form
             setSelectedCustomerId('');
@@ -325,6 +336,7 @@ Tato smlouva je vyhotovena elektronicky. Nájemce svým digitálním podpisem st
                                     <input type="text" placeholder="Příjmení" value={newCustomerData.lastName} onChange={e => setNewCustomerData({...newCustomerData, lastName: e.target.value})} className="w-full p-2 border rounded" required />
                                 </div>
                                 <input type="email" placeholder="Email" value={newCustomerData.email} onChange={e => setNewCustomerData({...newCustomerData, email: e.target.value})} className="w-full p-2 border rounded" required />
+                                {/* FIX: Added input for customer address. */}
                                 <input type="text" placeholder="Adresa" value={newCustomerData.address} onChange={e => setNewCustomerData({...newCustomerData, address: e.target.value})} className="w-full p-2 border rounded" required />
                                 <div className="grid grid-cols-2 gap-4">
                                      <input type="tel" placeholder="Telefon" value={newCustomerData.phone} onChange={e => setNewCustomerData({...newCustomerData, phone: e.target.value})} className="w-full p-2 border rounded" required />

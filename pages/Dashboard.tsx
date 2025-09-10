@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { getVehicles, getReservations } from '../services/api';
 import { Reservation, Vehicle, Page } from '../types';
+// FIX: Imported Tooltip from recharts
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
-import { Users, CalendarCheck, AlertTriangle, Link, Clock } from 'lucide-react';
+import { Car, Users, CalendarCheck, AlertTriangle, Link, Clock } from 'lucide-react';
 import ReservationDetailModal from '../components/ReservationDetailModal';
 import SelfServiceModal from '../components/SelfServiceModal';
 
@@ -47,13 +48,9 @@ const Dashboard: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setCurr
     const tomorrow = new Date(today);
     tomorrow.setDate(today.getDate() + 1);
 
-    const todaysDepartures = reservations.filter(r => {
-        if (r.status !== 'scheduled' || !r.startDate) return false;
-        const startDate = new Date(r.startDate);
-        return startDate >= today && startDate < tomorrow;
-    });
-
-    const activeAndReturningReservations = reservations.filter(r => r.status === 'active');
+    const todaysDepartures = reservations.filter(r => r.status === 'scheduled' && new Date(r.startDate) >= today && new Date(r.startDate) < tomorrow);
+    const todaysArrivals = reservations.filter(r => r.status === 'active' && new Date(r.endDate) >= today && new Date(r.endDate) < tomorrow);
+    const pendingCustomerReservations = reservations.filter(r => r.status === 'pending-customer');
     const maintenanceVehicles = vehicles.filter(v => v.status === 'maintenance');
 
     const handleOpenDetailModal = (reservation: Reservation) => {
@@ -127,7 +124,20 @@ const Dashboard: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setCurr
             </div>
             
             {/* Action Center */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                     <h2 className="text-xl font-bold text-gray-700 mb-4">Čeká na údaje od zákazníka</h2>
+                     {pendingCustomerReservations.length > 0 ? (
+                        <ul className="space-y-3">
+                           {pendingCustomerReservations.map(res => (
+                               <li key={res.id} className="p-3 bg-blue-50 rounded-md">
+                                 <p className="font-semibold">{res.vehicle?.name}</p>
+                                 <p className="text-sm text-blue-700">Odkaz byl vygenerován. Čeká se na vyplnění.</p>
+                               </li>
+                           ))}
+                        </ul>
+                     ) : <p className="text-gray-500">Žádné čekající rezervace.</p>}
+                </div>
                 <div className="bg-white p-6 rounded-lg shadow-md">
                     <h2 className="text-xl font-bold text-gray-700 mb-4">Dnešní odjezdy</h2>
                      {todaysDepartures.length > 0 ? (
@@ -136,7 +146,7 @@ const Dashboard: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setCurr
                                <li key={res.id} className="flex justify-between items-center p-3 bg-green-50 rounded-md">
                                  <div>
                                     <p className="font-semibold">{res.customer?.firstName} {res.customer?.lastName}</p>
-                                    <p className="text-sm text-gray-500">{res.vehicle?.name} - <Clock className="inline w-3 h-3 mr-1"/>{res.startDate ? new Date(res.startDate).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' }) : 'N/A'}</p>
+                                    <p className="text-sm text-gray-500">{res.vehicle?.name} - <Clock className="inline w-3 h-3 mr-1"/>{new Date(res.startDate).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}</p>
                                  </div>
                                  <button onClick={() => handleOpenDetailModal(res)} className="bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600 text-sm font-semibold">Vydat</button>
                                </li>
@@ -145,20 +155,20 @@ const Dashboard: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setCurr
                      ) : <p className="text-gray-500">Žádné plánované odjezdy.</p>}
                 </div>
                  <div className="bg-white p-6 rounded-lg shadow-md">
-                    <h2 className="text-xl font-bold text-gray-700 mb-4">Aktivní a vracející se vozidla</h2>
-                      {activeAndReturningReservations.length > 0 ? (
+                    <h2 className="text-xl font-bold text-gray-700 mb-4">Dnešní příjezdy</h2>
+                      {todaysArrivals.length > 0 ? (
                         <ul className="space-y-3">
-                           {activeAndReturningReservations.map(res => (
+                           {todaysArrivals.map(res => (
                                <li key={res.id} className="flex justify-between items-center p-3 bg-yellow-50 rounded-md">
                                   <div>
                                     <p className="font-semibold">{res.customer?.firstName} {res.customer?.lastName}</p>
-                                    <p className="text-sm text-gray-500">{res.vehicle?.name} - <Clock className="inline w-3 h-3 mr-1"/>Předpokládaný návrat: {res.endDate ? new Date(res.endDate).toLocaleDateString('cs-CZ') : 'Není stanoveno'}</p>
+                                    <p className="text-sm text-gray-500">{res.vehicle?.name} - <Clock className="inline w-3 h-3 mr-1"/>{new Date(res.endDate).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}</p>
                                   </div>
                                   <button onClick={() => handleOpenDetailModal(res)} className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600 text-sm font-semibold">Převzít</button>
                                </li>
                            ))}
                         </ul>
-                     ) : <p className="text-gray-500">Žádná aktivní nebo vracející se vozidla.</p>}
+                     ) : <p className="text-gray-500">Žádné plánované příjezdy.</p>}
                 </div>
             </div>
         </div>

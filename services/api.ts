@@ -88,13 +88,24 @@ const toReservation = (dbReservation: any): Reservation => ({
     id: dbReservation.id,
     customerId: dbReservation.customer_id,
     vehicleId: dbReservation.vehicle_id,
-    startDate: dbReservation.start_date ? new Date(dbReservation.start_date) : undefined,
-    endDate: dbReservation.end_date ? new Date(dbReservation.end_date) : undefined,
+    startDate: new Date(dbReservation.start_date),
+    endDate: new Date(dbReservation.end_date),
     status: dbReservation.status,
     portalToken: dbReservation.portal_token,
     notes: dbReservation.notes,
     customer: dbReservation.customers ? toCustomer(dbReservation.customers) : (dbReservation.customer ? toCustomer(dbReservation.customer) : undefined),
     vehicle: dbReservation.vehicles ? toVehicle(dbReservation.vehicles) : (dbReservation.vehicle ? toVehicle(dbReservation.vehicle) : undefined),
+});
+
+const toContract = (dbContract: any): Contract => ({
+    id: dbContract.id,
+    reservationId: dbContract.reservation_id,
+    customerId: dbContract.customer_id,
+    vehicleId: dbContract.vehicle_id,
+    generatedAt: new Date(dbContract.generated_at),
+    contractText: dbContract.contract_text,
+    customer: dbContract.customer ? toCustomer(dbContract.customer) : undefined,
+    vehicle: dbContract.vehicle ? toVehicle(dbContract.vehicle) : undefined,
 });
 
 
@@ -159,9 +170,6 @@ export const getReservations = async (): Promise<Reservation[]> => {
 };
 
 export const addReservation = async (reservationData: Omit<Reservation, 'id' | 'status'>): Promise<Reservation> => {
-    if (!reservationData.startDate || !reservationData.endDate) {
-        throw new Error("Start date and end date are required for a standard reservation.");
-    }
     const { data, error } = await getClient().from('reservations').insert({ 
         customer_id: reservationData.customerId,
         vehicle_id: reservationData.vehicleId,
@@ -218,9 +226,7 @@ export const createPendingReservation = async (vehicleId: string): Promise<Reser
             customer_id: null,
             vehicle_id: vehicleId,
             status: 'pending-customer',
-            portal_token: token,
-            start_date: null,
-            end_date: null
+            portal_token: token
         })
         .select()
         .single();
@@ -272,8 +278,8 @@ export const submitCustomerDetails = async (portalToken: string, customerData: O
         .update({
             customer_id: newCustomer.id,
             status: 'scheduled',
-            start_date: new Date().toISOString(), // Default start date to now
-            end_date: new Date(new Date().setDate(new Date().getDate() + 1)).toISOString() // Default end date to 24h from now
+            start_date: new Date().toISOString(),
+            end_date: new Date(new Date().setDate(new Date().getDate() + 1)).toISOString()
         })
         .eq('portal_token', portalToken)
         .select()
@@ -283,12 +289,36 @@ export const submitCustomerDetails = async (portalToken: string, customerData: O
     return toReservation(updatedReservation);
 };
 
-// Zástupné funkce pro Smlouvy a Finance
+// Contract API
 export const getContracts = async (): Promise<Contract[]> => {
-    console.warn("getContracts is not implemented for Supabase yet.");
-    return [];
+    const { data, error } = await getClient()
+        .from('contracts')
+        .select('*, customer:customers(*), vehicle:vehicles(*)')
+        .order('generated_at', { ascending: false });
+    handleSupabaseError(error, 'getContracts');
+    return (data || []).map(toContract);
 };
 
+export const addContract = async (contractData: Omit<Contract, 'id' | 'customer' | 'vehicle'>): Promise<Contract> => {
+    const { data, error } = await getClient()
+        .from('contracts')
+        .insert({
+            reservation_id: contractData.reservationId,
+            customer_id: contractData.customerId,
+            vehicle_id: contractData.vehicleId,
+            generated_at: contractData.generatedAt.toISOString(),
+            contract_text: contractData.contractText,
+        })
+        .select()
+        .single();
+    handleSupabaseError(error, 'addContract');
+    // The returned data from insert doesn't have joined customer/vehicle, so we return a partial contract.
+    // This is acceptable as we don't use the return value in the UI after creation.
+    return { ...toContract(data), customer: {} as Customer, vehicle: {} as Vehicle };
+};
+
+
+// Finance API
 export const getFinancials = async (): Promise<FinancialTransaction[]> => {
     console.warn("getFinancials is not implemented for Supabase yet.");
     return [];
