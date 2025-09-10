@@ -112,6 +112,15 @@ const toContract = (dbContract: any): Contract => ({
     vehicle: dbContract.vehicles ? toVehicle(dbContract.vehicles) : undefined,
 });
 
+const toFinancialTransaction = (dbTransaction: any): FinancialTransaction => ({
+    id: dbTransaction.id,
+    reservationId: dbTransaction.reservation_id,
+    amount: dbTransaction.amount,
+    date: new Date(dbTransaction.date),
+    description: dbTransaction.description,
+    type: dbTransaction.type,
+});
+
 
 // Vehicle API
 export const getVehicles = async (): Promise<Vehicle[]> => {
@@ -204,19 +213,65 @@ export const activateReservation = async (reservationId: string, startMileage: n
 };
 
 export const completeReservation = async (reservationId: string, endMileage: number, notes: string): Promise<Reservation> => {
-    const { data: reservation, error: resError } = await getClient()
+    const client = getClient();
+    // 1. Update reservation status
+    const { data: reservation, error: resError } = await client
         .from('reservations')
         .update({ status: 'completed', notes, end_mileage: endMileage })
         .eq('id', reservationId)
-        .select()
+        .select('*, customers(*), vehicles(*)') // Fetch related data for financial transaction
         .single();
     handleSupabaseError(resError, 'completeReservation - update reservation');
 
-    const { error: vehicleError } = await getClient()
+    // 2. Update vehicle status
+    const { error: vehicleError } = await client
         .from('vehicles')
         .update({ status: 'available', current_mileage: endMileage })
         .eq('id', reservation.vehicle_id);
     handleSupabaseError(vehicleError, 'completeReservation - update vehicle');
+
+    // 3. Calculate price and create financial transaction
+    const vehicle = toVehicle(reservation.vehicles);
+    const customer = toCustomer(reservation.customers);
+    const start = new Date(reservation.start_date);
+    const end = new Date(reservation.end_date);
+    
+    // Base rental price calculation
+    const durationHours = (end.getTime() - start.getTime()) / (1000 * 3600);
+    let rentalPrice = 0;
+    if (durationHours <= 4) {
+        rentalPrice = vehicle.rate4h;
+    } else if (durationHours <= 12) {
+        rentalPrice = vehicle.rate12h;
+    } else {
+        const days = Math.ceil(durationHours / 24);
+        rentalPrice = days * vehicle.dailyRate;
+    }
+
+    // Mileage fee calculation
+    const startKm = reservation.start_mileage || 0;
+    const endKm = endMileage;
+    const kmDriven = endKm > startKm ? endKm - startKm : 0;
+    const rentalDays = Math.max(1, Math.ceil(durationHours / (24)));
+    const kmLimit = rentalDays * 300;
+    const kmOver = Math.max(0, kmDriven - kmLimit);
+    const extraCharge = kmOver * 3;
+
+    const totalAmount = rentalPrice + extraCharge;
+
+    const description = `Příjem z pronájmu - ${vehicle.name} (${vehicle.licensePlate}) - ${customer.firstName} ${customer.lastName}`;
+
+    // Insert transaction
+    const { error: transactionError } = await client
+        .from('financial_transactions')
+        .insert({
+            reservation_id: reservation.id,
+            amount: totalAmount,
+            date: new Date().toISOString(),
+            description: description,
+            type: 'income',
+        });
+    handleSupabaseError(transactionError, 'completeReservation - create financial transaction');
     
     return toReservation(reservation);
 };
@@ -350,6 +405,10 @@ export const addContract = async (contractData: Omit<Contract, 'id' | 'customer'
 
 // Finance API
 export const getFinancials = async (): Promise<FinancialTransaction[]> => {
-    console.warn("getFinancials is not implemented for Supabase yet.");
-    return [];
+    const { data, error } = await getClient()
+        .from('financial_transactions')
+        .select('*')
+        .order('date', { ascending: false });
+    handleSupabaseError(error, 'getFinancials');
+    return (data || []).map(toFinancialTransaction);
 };
