@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useRef, forwardRef, useImperativeH
 import { getVehicles, getCustomers, getReservations, addCustomer, addReservation, addContract } from '../services/api';
 // FIX: 'Page' is an enum used as a value, so it cannot be imported with 'import type'.
 import { Page, type Reservation, type Vehicle, type Customer } from '../types';
-import { UserPlus, Car, Calendar as CalendarIcon, Signature, Loader, Send } from 'lucide-react';
+import { UserPlus, Car, Calendar as CalendarIcon, Signature, Loader, Send, Clock } from 'lucide-react';
 
 // Signature Pad Component
 interface SignaturePadHandles {
@@ -123,6 +123,7 @@ const Reservations: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setC
     const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
+    const [duration, setDuration] = useState<{type: 'hours' | 'days', value: number} | null>(null);
     const signaturePadRef = useRef<SignaturePadHandles>(null);
 
     // Fetch initial data
@@ -143,6 +144,37 @@ const Reservations: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setC
         };
         fetchData();
     }, []);
+
+    const handleDurationChange = (type: 'hours' | 'days', value: number) => {
+        if (isNaN(value) || value <= 0) {
+             setDuration(null);
+             return;
+        }
+        setDuration({ type, value });
+        setSelectedVehicleId(''); // Reset vehicle choice on duration change
+    };
+    
+    useEffect(() => {
+        if (!startDate || !duration) {
+            setEndDate('');
+            return;
+        }
+        const start = new Date(startDate);
+        if (isNaN(start.getTime())) {
+             setEndDate('');
+             return;
+        }
+        let end;
+        if (duration.type === 'hours') {
+            end = new Date(start.getTime() + duration.value * 60 * 60 * 1000);
+        } else { // type is 'days'
+            end = new Date(start.getTime() + duration.value * 24 * 60 * 60 * 1000);
+        }
+        const pad = (num: number) => num.toString().padStart(2, '0');
+        const formattedEnd = `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}`;
+        setEndDate(formattedEnd);
+    }, [startDate, duration]);
+
 
     const availableVehicles = useMemo(() => {
         if (!startDate || !endDate) return [];
@@ -177,6 +209,7 @@ const Reservations: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setC
         setSelectedVehicleId('');
         setStartDate('');
         setEndDate('');
+        setDuration(null);
         signaturePadRef.current?.clear();
     };
 
@@ -274,10 +307,42 @@ const Reservations: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setC
                  {/* Date & Time Section */}
                 <section>
                     <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4 border-b pb-2"><CalendarIcon className="mr-3 text-primary"/>Krok 2: Doba pronájmu</h2>
-                    <div className="grid grid-cols-2 gap-4">
-                       <input type="datetime-local" value={startDate} onChange={e => { setSelectedVehicleId(''); setStartDate(e.target.value); }} className="w-full p-2 border rounded" required />
-                       <input type="datetime-local" value={endDate} onChange={e => { setSelectedVehicleId(''); setEndDate(e.target.value); }} className="w-full p-2 border rounded" required />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Začátek pronájmu</label>
+                            <input type="datetime-local" value={startDate} onChange={e => { setStartDate(e.target.value); setSelectedVehicleId(''); }} className="w-full p-2 border rounded" required />
+                        </div>
+                         <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Délka pronájmu</label>
+                            <div className="flex flex-wrap gap-2 items-center">
+                                <button type="button" onClick={() => handleDurationChange('hours', 4)} className={`px-3 py-2 text-sm rounded-lg font-semibold transition-colors ${duration?.type === 'hours' && duration?.value === 4 ? 'bg-primary text-white' : 'bg-white border'}`}>4 hod</button>
+                                <button type="button" onClick={() => handleDurationChange('hours', 12)} className={`px-3 py-2 text-sm rounded-lg font-semibold transition-colors ${duration?.type === 'hours' && duration?.value === 12 ? 'bg-primary text-white' : 'bg-white border'}`}>12 hod</button>
+                                <button type="button" onClick={() => handleDurationChange('days', 1)} className={`px-3 py-2 text-sm rounded-lg font-semibold transition-colors ${duration?.type === 'days' && duration?.value === 1 ? 'bg-primary text-white' : 'bg-white border'}`}>1 den</button>
+                                <div className={`flex items-center space-x-2 border rounded-lg p-1 transition-colors ${duration?.type === 'days' && duration.value >= 2 ? 'border-primary ring-2 ring-primary/50' : 'border-gray-300'}`}>
+                                    <input 
+                                        type="number" min="2" max="30" 
+                                        value={duration?.type === 'days' && duration.value >= 2 ? duration.value : ''}
+                                        placeholder="2+"
+                                        onChange={e => {
+                                            const days = parseInt(e.target.value, 10);
+                                            if (days >= 2 && days <= 30) handleDurationChange('days', days);
+                                        }}
+                                        onFocus={() => { if (!(duration?.type === 'days' && duration.value >= 2)) handleDurationChange('days', 2); }}
+                                        className="w-16 p-1 border-none focus:ring-0 text-center font-semibold"
+                                    />
+                                    <label className="font-semibold pr-2 text-sm">dní</label>
+                                </div>
+                            </div>
+                        </div>
                     </div>
+                     {endDate && (
+                        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md flex items-center">
+                           <Clock className="w-5 h-5 mr-3 text-blue-600"/>
+                           <p className="text-sm text-blue-800">
+                                Konec pronájmu: <span className="font-bold">{new Date(endDate).toLocaleString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                           </p>
+                        </div>
+                    )}
                 </section>
                 {/* Vehicle Section */}
                  <section>
