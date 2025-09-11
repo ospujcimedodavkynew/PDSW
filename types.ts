@@ -1,6 +1,7 @@
 // Defines the available pages for navigation
 export enum Page {
     DASHBOARD = 'dashboard',
+    CALENDAR = 'calendar',
     RESERVATIONS = 'reservations',
     VEHICLES = 'vehicles',
     CUSTOMERS = 'customers',
@@ -23,6 +24,8 @@ export interface Vehicle {
     dailyRate: number;
     features: string[];
     currentMileage: number;
+    description?: string;
+    dimensions?: string;
 }
 
 // Represents a customer

@@ -79,6 +79,8 @@ const toVehicle = (dbVehicle: any): Vehicle => ({
     dailyRate: dbVehicle.daily_rate,
     features: dbVehicle.features || [],
     currentMileage: dbVehicle.current_mileage ?? 0,
+    description: dbVehicle.description,
+    dimensions: dbVehicle.dimensions,
 });
 
 const fromVehicle = (vehicle: Partial<Vehicle>) => ({
@@ -94,6 +96,8 @@ const fromVehicle = (vehicle: Partial<Vehicle>) => ({
     features: vehicle.features,
     image_url: vehicle.imageUrl,
     current_mileage: vehicle.currentMileage,
+    description: vehicle.description,
+    dimensions: vehicle.dimensions,
 });
 
 const toCustomer = (dbCustomer: any): Customer => ({
@@ -514,7 +518,7 @@ Celková cena nájmu: ${reservationDetails.totalPrice.toLocaleString('cs-CZ')} K
 Článek IV. - Práva a povinnosti
 -----------------------------------------
 1. Nájemce potvrzuje, že vozidlo převzal v řádném technickém stavu, bez zjevných závad a s kompletní povinnou výbavou.
-2. Nájemce je povinen užívat vozidlo s péčí řádného hospodáře a chránit ho před poškozením, ztrátou či zničením.
+2. Nájemce je povinen užívat vozidlo s péčí řádného hospáře a chránit ho před poškozením, ztrátou či zničením.
 3. Nájemce není oprávněn přenechat vozidlo do užívání třetí osobě bez předchozího písemného souhlasu pronajímatele.
 
 Článek V. - Spoluúčast a poškození vozidla

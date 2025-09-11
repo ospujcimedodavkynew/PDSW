@@ -1,7 +1,7 @@
 import React, { useEffect, useState, FormEvent } from 'react';
 import { getVehicles, addVehicle, updateVehicle } from '../services/api';
 import type { Vehicle } from '../types';
-import { Car, Wrench, CheckCircle, Plus, X, Gauge } from 'lucide-react';
+import { Car, Wrench, CheckCircle, Plus, X, Gauge, Maximize, ClipboardList, Info } from 'lucide-react';
 
 const VehicleCard: React.FC<{ vehicle: Vehicle; onEdit: (vehicle: Vehicle) => void; }> = ({ vehicle, onEdit }) => {
     const statusInfo = {
@@ -13,18 +13,30 @@ const VehicleCard: React.FC<{ vehicle: Vehicle; onEdit: (vehicle: Vehicle) => vo
     return (
         <div className="bg-white rounded-lg shadow-lg overflow-hidden transform hover:-translate-y-1 transition-transform duration-300 flex flex-col">
             <img src={vehicle.imageUrl} alt={vehicle.name} className="w-full h-48 object-cover" />
-            <div className="p-4 flex-grow">
+            <div className="p-4 flex-grow space-y-2">
                 <h3 className="text-xl font-bold text-gray-800">{vehicle.name}</h3>
                 <p className="text-sm text-gray-500">{vehicle.make} {vehicle.model} ({vehicle.year})</p>
                 <p className="text-gray-600 font-semibold mt-2">{vehicle.licensePlate}</p>
-                 <div className="flex items-center text-sm text-gray-500 mt-1">
+                 <div className="flex items-center text-sm text-gray-500">
                     <Gauge className="w-4 h-4 mr-2" />
                     <span>Stav km: {vehicle.currentMileage.toLocaleString('cs-CZ')} km</span>
                 </div>
-                <div className={`flex items-center mt-2 font-medium ${statusInfo[vehicle.status].color}`}>
+                <div className={`flex items-center font-medium ${statusInfo[vehicle.status].color}`}>
                     {statusInfo[vehicle.status].icon}
                     <span className="ml-2">{statusInfo[vehicle.status].text}</span>
                 </div>
+                 {vehicle.dimensions && (
+                     <div className="flex items-start text-sm text-gray-500 pt-2">
+                        <Maximize className="w-4 h-4 mr-2 mt-0.5 flex-shrink-0" />
+                        <span>{vehicle.dimensions}</span>
+                    </div>
+                )}
+                 {vehicle.features && vehicle.features.length > 0 && (
+                     <div className="flex items-start text-sm text-gray-500">
+                        <ClipboardList className="w-4 h-4 mr-2 mt-0.5 flex-shrink-0" />
+                        <span>{vehicle.features.join(', ')}</span>
+                    </div>
+                )}
             </div>
             <div className="p-4 bg-gray-50 border-t">
                  <div className="text-sm space-y-1">
@@ -58,6 +70,8 @@ const VehicleFormModal: React.FC<{
         dailyRate: 0,
         features: [],
         currentMileage: 0,
+        description: '',
+        dimensions: '',
     };
     
     const [formData, setFormData] = useState<Partial<Vehicle>>(getInitialData(vehicle));
@@ -102,7 +116,7 @@ const VehicleFormModal: React.FC<{
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-            <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-lg">
+            <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-2xl font-bold">{vehicle?.id ? 'Upravit vozidlo' : 'Přidat nové vozidlo'}</h2>
                     <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-200"><X /></button>
@@ -128,6 +142,18 @@ const VehicleFormModal: React.FC<{
                             <input type="number" placeholder="Cena / 12 hod" value={formData.rate12h || 0} onChange={e => setFormData({ ...formData, rate12h: parseInt(e.target.value) || 0 })} className="w-full p-2 border rounded" required />
                             <input type="number" placeholder="Cena / den (24h+)" value={formData.dailyRate || 0} onChange={e => setFormData({ ...formData, dailyRate: parseInt(e.target.value) || 0 })} className="w-full p-2 border rounded" required />
                         </div>
+                    </div>
+                     <div>
+                         <label className="block text-sm font-medium text-gray-700 mb-1">Popis vozidla</label>
+                         <textarea placeholder="Krátký popis pro zákazníky..." value={formData.description || ''} onChange={e => setFormData({ ...formData, description: e.target.value })} className="w-full p-2 border rounded h-24" />
+                    </div>
+                     <div>
+                         <label className="block text-sm font-medium text-gray-700 mb-1">Rozměry nákladového prostoru</label>
+                         <input type="text" placeholder="např. D: 3.2m, Š: 1.8m, V: 1.9m" value={formData.dimensions || ''} onChange={e => setFormData({ ...formData, dimensions: e.target.value })} className="w-full p-2 border rounded" />
+                    </div>
+                     <div>
+                         <label className="block text-sm font-medium text-gray-700 mb-1">Výbava (odděleno čárkou)</label>
+                         <input type="text" placeholder="např. Klimatizace, Tažné zařízení, Rádio" value={(formData.features || []).join(', ')} onChange={e => setFormData({ ...formData, features: e.target.value.split(',').map(f => f.trim()) })} className="w-full p-2 border rounded" />
                     </div>
                      <div>
                          <label className="block text-sm font-medium text-gray-700 mb-1">Stav vozidla</label>
