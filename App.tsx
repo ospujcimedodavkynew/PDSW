@@ -8,6 +8,8 @@ import Contracts from './pages/Contracts';
 import Financials from './pages/Financials';
 import CustomerPortal from './pages/CustomerPortal';
 import Login from './pages/Login';
+import Calendar from './pages/Calendar';
+import OnlineRentalPortal from './pages/OnlineRentalPortal';
 import { Page } from './types';
 import { areSupabaseCredentialsSet, getSession, onAuthChange } from './services/api';
 import { AlertTriangle, Loader } from 'lucide-react';
@@ -41,8 +43,12 @@ function App() {
   if (!areSupabaseCredentialsSet) {
     return <ConfigError />;
   }
+
+  // --- KONTROLA VEŘEJNÝCH PORTÁLŮ ---
+  if (window.location.hash === '#/online-rezervace') {
+    return <OnlineRentalPortal />;
+  }
   
-  // --- KONTROLA SAMOOBSLUŽNÉHO PORTÁLU ---
   const urlParams = new URLSearchParams(window.location.search);
   const portalToken = urlParams.get('portal');
   if (portalToken) {
@@ -77,6 +83,8 @@ function App() {
     switch (currentPage) {
       case Page.DASHBOARD:
         return <Dashboard setCurrentPage={setCurrentPage} />;
+      case Page.CALENDAR:
+        return <Calendar setCurrentPage={setCurrentPage} />;
       case Page.RESERVATIONS:
         return <Reservations />;
       case Page.VEHICLES:

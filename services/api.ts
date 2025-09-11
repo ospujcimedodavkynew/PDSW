@@ -405,6 +405,146 @@ export const submitCustomerDetails = async (portalToken: string, customerData: O
     return toReservation(updatedReservation);
 };
 
+
+// Online Portal API
+export const submitOnlineReservation = async (
+    reservationDetails: {
+        vehicleId: string;
+        startDate: Date;
+        endDate: Date;
+        totalPrice: number;
+    },
+    customerData: Omit<Customer, 'id' | 'driverLicenseImageUrl'>,
+    driverLicenseImage: File,
+    vehicleData: Vehicle
+): Promise<{ reservation: Reservation; customer: Customer; contractText: string }> => {
+    const client = getClient();
+    let customerId: string;
+    let customerForContract: Customer;
+
+    // 1. Find or create customer
+    const { data: existingCustomer } = await client
+        .from('customers')
+        .select('*')
+        .eq('email', customerData.email)
+        .single();
+    
+    if (existingCustomer) {
+        customerId = existingCustomer.id;
+        customerForContract = toCustomer(existingCustomer);
+    } else {
+        const { data: newCustomer, error: createError } = await client
+            .from('customers')
+            .insert(fromCustomer(customerData))
+            .select()
+            .single();
+        handleSupabaseError(createError, 'submitOnlineReservation - create customer');
+        customerId = newCustomer.id;
+        customerForContract = toCustomer(newCustomer);
+    }
+
+    // 2. Upload driver's license
+    const filePath = `${customerId}/${Date.now()}-${driverLicenseImage.name}`;
+    const { error: uploadError } = await client.storage
+        .from('licenses')
+        .upload(filePath, driverLicenseImage);
+    handleSupabaseError(uploadError, 'submitOnlineReservation - image upload');
+
+    // 3. Get public URL and update customer
+    const { data: { publicUrl } } = client.storage
+        .from('licenses')
+        .getPublicUrl(filePath);
+    
+    const { error: updateCustomerError } = await client
+        .from('customers')
+        .update({ driver_license_image_url: publicUrl })
+        .eq('id', customerId);
+    handleSupabaseError(updateCustomerError, 'submitOnlineReservation - update customer with image URL');
+    customerForContract.driverLicenseImageUrl = publicUrl;
+
+    // 4. Create reservation
+    const { data: newReservationData, error: reservationError } = await client
+        .from('reservations')
+        .insert({
+            customer_id: customerId,
+            vehicle_id: reservationDetails.vehicleId,
+            start_date: reservationDetails.startDate.toISOString(),
+            end_date: reservationDetails.endDate.toISOString(),
+            status: 'scheduled',
+        })
+        .select()
+        .single();
+    handleSupabaseError(reservationError, 'submitOnlineReservation - create reservation');
+    const newReservation = toReservation(newReservationData);
+
+    // 5. Generate and add contract
+    const contractText = `
+SMLOUVA O NÁJMU DOPRAVNÍHO PROSTŘEDKU
+=========================================
+
+Článek I. - Smluvní strany
+-----------------------------------------
+Pronajímatel:
+Milan Gula
+Ghegova 17, Brno, 60200
+Web: Pujcimedodavky.cz
+IČO: 07031653
+(dále jen "pronajímatel")
+
+Nájemce:
+Jméno: ${customerForContract.firstName} ${customerForContract.lastName}
+Email: ${customerForContract.email}
+Telefon: ${customerForContract.phone}
+Číslo ŘP: ${customerForContract.driverLicenseNumber}
+Adresa: ${customerForContract.address}
+(dále jen "nájemce")
+
+Článek II. - Předmět nájmu
+-----------------------------------------
+Pronajímatel tímto přenechává nájemci do dočasného užívání následující motorové vozidlo:
+Vozidlo: ${vehicleData.name}
+SPZ: ${vehicleData.licensePlate}
+Rok výroby: ${vehicleData.year}
+
+Článek III. - Doba nájmu a cena
+-----------------------------------------
+Doba nájmu: od ${reservationDetails.startDate.toLocaleString('cs-CZ')} do ${reservationDetails.endDate.toLocaleString('cs-CZ')}
+Celková cena nájmu: ${reservationDetails.totalPrice.toLocaleString('cs-CZ')} Kč
+
+Článek IV. - Práva a povinnosti
+-----------------------------------------
+1. Nájemce potvrzuje, že vozidlo převzal v řádném technickém stavu, bez zjevných závad a s kompletní povinnou výbavou.
+2. Nájemce je povinen užívat vozidlo s péčí řádného hospodáře a chránit ho před poškozením, ztrátou či zničením.
+3. Nájemce není oprávněn přenechat vozidlo do užívání třetí osobě bez předchozího písemného souhlasu pronajímatele.
+
+Článek V. - Spoluúčast a poškození vozidla
+-----------------------------------------
+V případě poškození vozidla zaviněného nájemcem se sjednává spoluúčast ve výši 5.000 Kč až 10.000 Kč dle rozsahu poškození. Tato spoluúčast bude hrazena nájemcem.
+
+Článek VI. - Stav kilometrů a limit
+-----------------------------------------
+Počáteční stav kilometrů při předání: ${(vehicleData.currentMileage ?? 0).toLocaleString('cs-CZ')} km
+Denní limit pro nájezd je 300 km. Za každý kilometr nad tento limit (vypočítaný jako 300 km * počet dní pronájmu) bude účtován poplatek 3 Kč/km.
+
+Článek VII. - Závěrečná ustanovení
+-----------------------------------------
+Tato smlouva je vyhotovena elektronicky. Nájemce svým digitálním podpisem stvrzuje, že se seznámil s obsahem smlouvy, souhlasí s ním a bere na vědomí, že vozidlo přebírá při zahájení pronájmu.
+            `;
+
+    await client
+        .from('contracts')
+        .insert({
+            reservation_id: newReservation.id,
+            customer_id: customerId,
+            vehicle_id: reservationDetails.vehicleId,
+            generated_at: new Date().toISOString(),
+            contract_text: contractText,
+        });
+
+    return { reservation: newReservation, customer: customerForContract, contractText };
+};
+
+
 // Contract API
 export const getContracts = async (): Promise<Contract[]> => {
     const { data, error } = await getClient()
