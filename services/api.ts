@@ -320,6 +320,12 @@ export const completeReservation = async (reservationId: string, endMileage: num
     return toReservation(reservation);
 };
 
+export const deleteReservation = async (reservationId: string): Promise<void> => {
+    const { error } = await getClient().from('reservations').delete().eq('id', reservationId);
+    handleSupabaseError(error, 'deleteReservation');
+};
+
+
 // Self-service API
 export const createPendingReservation = async (vehicleId: string, startDate: Date, endDate: Date): Promise<Reservation> => {
     const token = `portal-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;

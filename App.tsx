@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Reservations from './pages/Reservations';
+import ManageReservations from './pages/ManageReservations';
 import Vehicles from './pages/Vehicles';
 import Customers from './pages/Customers';
 import Contracts from './pages/Contracts';
@@ -86,7 +87,9 @@ function App() {
       case Page.CALENDAR:
         return <Calendar setCurrentPage={setCurrentPage} />;
       case Page.RESERVATIONS:
-        return <Reservations />;
+        return <Reservations setCurrentPage={setCurrentPage} />;
+      case Page.MANAGE_RESERVATIONS:
+        return <ManageReservations setCurrentPage={setCurrentPage} />;
       case Page.VEHICLES:
         return <Vehicles />;
       case Page.CUSTOMERS:

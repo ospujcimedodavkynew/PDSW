@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Page } from '../types';
-import { LayoutDashboard, Car, Users, Calendar, FileText, DollarSign, LogOut, CalendarDays } from 'lucide-react';
+import { LayoutDashboard, Car, Users, Calendar, FileText, DollarSign, LogOut, CalendarDays, ListChecks } from 'lucide-react';
 import { signOut } from '../services/api';
 
 interface SidebarProps {
@@ -14,7 +14,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage }) => {
     const navItems = [
         { page: Page.DASHBOARD, label: 'Přehled', icon: LayoutDashboard },
         { page: Page.CALENDAR, label: 'Kalendář dostupnosti', icon: CalendarDays },
-        { page: Page.RESERVATIONS, label: 'Rezervace', icon: Calendar },
+        { page: Page.RESERVATIONS, label: 'Nová rezervace', icon: Calendar },
+        { page: Page.MANAGE_RESERVATIONS, label: 'Správa rezervací', icon: ListChecks },
         { page: Page.VEHICLES, label: 'Vozový park', icon: Car },
         { page: Page.CUSTOMERS, label: 'Zákazníci', icon: Users },
         { page: Page.CONTRACTS, label: 'Smlouvy', icon: FileText },
