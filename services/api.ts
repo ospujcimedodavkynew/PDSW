@@ -1,5 +1,5 @@
 import { createClient, Session } from '@supabase/supabase-js';
-import type { Vehicle, Customer, Reservation, Contract, FinancialTransaction } from '../types';
+import type { Vehicle, Customer, Reservation, Contract, FinancialTransaction, ServiceRecord } from '../types';
 
 // Načtení konfigurace z globálního objektu window, který je definován v index.html
 const env = (window as any).env || {};
@@ -154,6 +154,15 @@ const toFinancialTransaction = (dbTransaction: any): FinancialTransaction => ({
     date: new Date(dbTransaction.date),
     description: dbTransaction.description,
     type: dbTransaction.type,
+});
+
+const toServiceRecord = (dbRecord: any): ServiceRecord => ({
+    id: dbRecord.id,
+    vehicleId: dbRecord.vehicle_id,
+    serviceDate: new Date(dbRecord.service_date),
+    description: dbRecord.description,
+    cost: dbRecord.cost,
+    mileage: dbRecord.mileage,
 });
 
 
@@ -594,7 +603,7 @@ export const addExpense = async (expenseData: { amount: number; date: Date; desc
         .insert({
             reservation_id: null,
             amount: expenseData.amount,
-            date: expenseData.date.toISOString(),
+            date: expenseData.date.toISOString().split('T')[0], // Ukládáme pouze datum
             description: expenseData.description,
             type: 'expense',
         })
@@ -602,4 +611,48 @@ export const addExpense = async (expenseData: { amount: number; date: Date; desc
         .single();
     handleSupabaseError(error, 'addExpense');
     return toFinancialTransaction(data);
+};
+
+// Service Records API
+export const getServiceRecordsForVehicle = async (vehicleId: string): Promise<ServiceRecord[]> => {
+    const { data, error } = await getClient()
+        .from('service_records')
+        .select('*')
+        .eq('vehicle_id', vehicleId)
+        .order('service_date', { ascending: false });
+    handleSupabaseError(error, 'getServiceRecordsForVehicle');
+    return (data || []).map(toServiceRecord);
+};
+
+export const addServiceRecord = async (recordData: Omit<ServiceRecord, 'id'>, vehicleName: string): Promise<ServiceRecord> => {
+    const client = getClient();
+
+    // 1. Add the service record itself
+    const { data, error } = await client
+        .from('service_records')
+        .insert({
+            vehicle_id: recordData.vehicleId,
+            service_date: recordData.serviceDate.toISOString().split('T')[0],
+            description: recordData.description,
+            cost: recordData.cost,
+            mileage: recordData.mileage
+        })
+        .select()
+        .single();
+    handleSupabaseError(error, 'addServiceRecord');
+
+    // 2. Automatically create a corresponding expense in financial transactions
+    const expenseDescription = `Servis - ${vehicleName}: ${recordData.description}`;
+    await addExpense({
+        amount: recordData.cost,
+        date: recordData.serviceDate,
+        description: expenseDescription
+    });
+
+    return toServiceRecord(data);
+};
+
+export const deleteServiceRecord = async (recordId: string): Promise<void> => {
+    const { error } = await getClient().from('service_records').delete().eq('id', recordId);
+    handleSupabaseError(error, 'deleteServiceRecord');
 };

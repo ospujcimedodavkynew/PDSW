@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { getCustomers } from '../services/api';
 import type { Customer } from '../types';
-import { Plus, User, Mail, Phone, Edit, MapPin } from 'lucide-react';
+import { Plus, User, Mail, Phone, Edit, MapPin, Search } from 'lucide-react';
 import CustomerFormModal from '../components/CustomerFormModal';
 
 const CustomerCard: React.FC<{ customer: Customer; onEdit: (customer: Customer) => void }> = ({ customer, onEdit }) => {
@@ -36,6 +36,7 @@ const Customers: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
 
     const fetchCustomers = async () => {
         try {
@@ -52,6 +53,17 @@ const Customers: React.FC = () => {
         setLoading(true);
         fetchCustomers();
     }, []);
+    
+    const filteredCustomers = useMemo(() => {
+        return customers.filter(customer => {
+            const searchLower = searchTerm.toLowerCase();
+            const fullName = `${customer.firstName} ${customer.lastName}`.toLowerCase();
+            return (
+                fullName.includes(searchLower) ||
+                customer.email.toLowerCase().includes(searchLower)
+            );
+        });
+    }, [customers, searchTerm]);
     
     const handleOpenModal = (customer: Customer | null = null) => {
         setSelectedCustomer(customer);
@@ -79,17 +91,35 @@ const Customers: React.FC = () => {
                 onSaveSuccess={handleSaveSuccess} 
                 customer={selectedCustomer} 
              />
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                 <h1 className="text-3xl font-bold text-gray-800">Zákazníci</h1>
-                <button onClick={() => handleOpenModal()} className="bg-secondary text-dark-text font-bold py-2 px-4 rounded-lg hover:bg-secondary-hover transition-colors flex items-center">
-                    <Plus className="w-5 h-5 mr-2" />
-                    Přidat zákazníka
-                </button>
+                <div className="flex items-center gap-4 w-full md:w-auto">
+                    <div className="relative w-full md:w-64">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                        <input
+                            type="text"
+                            placeholder="Hledat zákazníka..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full p-2 pl-10 border rounded-lg"
+                        />
+                    </div>
+                    <button onClick={() => handleOpenModal()} className="bg-secondary text-dark-text font-bold py-2 px-4 rounded-lg hover:bg-secondary-hover transition-colors flex items-center flex-shrink-0">
+                        <Plus className="w-5 h-5 mr-2" />
+                        Přidat
+                    </button>
+                </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {customers.map(customer => (
-                    <CustomerCard key={customer.id} customer={customer} onEdit={handleOpenModal} />
-                ))}
+                {filteredCustomers.length > 0 ? (
+                    filteredCustomers.map(customer => (
+                        <CustomerCard key={customer.id} customer={customer} onEdit={handleOpenModal} />
+                    ))
+                ) : (
+                    <div className="col-span-full text-center py-10 text-gray-500">
+                        <p>Žádní zákazníci neodpovídají vašemu vyhledávání.</p>
+                    </div>
+                )}
             </div>
         </div>
     );

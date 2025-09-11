@@ -77,3 +77,13 @@ export interface FinancialTransaction {
     description: string;
     type: 'income' | 'expense';
 }
+
+// Represents a service record for a vehicle
+export interface ServiceRecord {
+    id: string;
+    vehicleId: string;
+    serviceDate: Date;
+    description: string;
+    cost: number;
+    mileage: number;
+}

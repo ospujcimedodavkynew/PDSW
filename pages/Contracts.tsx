@@ -1,13 +1,13 @@
-
-
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { getContracts } from '../services/api';
 import type { Contract } from '../types';
+import { Search } from 'lucide-react';
 
 const Contracts: React.FC = () => {
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
 
     useEffect(() => {
         const fetchData = async () => {
@@ -23,6 +23,21 @@ const Contracts: React.FC = () => {
         };
         fetchData();
     }, []);
+
+    const filteredContracts = useMemo(() => {
+        return contracts.filter(contract => {
+            const searchLower = searchTerm.toLowerCase();
+            const customerName = `${contract.customer?.firstName} ${contract.customer?.lastName}`.toLowerCase();
+            const vehicleName = contract.vehicle?.name.toLowerCase() || '';
+            const licensePlate = contract.vehicle?.licensePlate.toLowerCase() || '';
+            return (
+                customerName.includes(searchLower) ||
+                vehicleName.includes(searchLower) ||
+                licensePlate.includes(searchLower) ||
+                contract.id.toLowerCase().includes(searchLower)
+            );
+        });
+    }, [contracts, searchTerm]);
 
     if (loading) return <div>Načítání smluv...</div>;
     
@@ -74,7 +89,19 @@ const Contracts: React.FC = () => {
 
     return (
         <div>
-            <h1 className="text-3xl font-bold text-gray-800 mb-6">Archiv smluv</h1>
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-3xl font-bold text-gray-800">Archiv smluv</h1>
+                <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <input
+                        type="text"
+                        placeholder="Hledat smlouvu..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full md:w-80 p-2 pl-10 border rounded-lg"
+                    />
+                </div>
+            </div>
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
                 <table className="min-w-full">
                     <thead className="bg-gray-50">
@@ -87,8 +114,8 @@ const Contracts: React.FC = () => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                        {contracts.length > 0 ? (
-                            contracts.map(contract => (
+                        {filteredContracts.length > 0 ? (
+                            filteredContracts.map(contract => (
                                 <tr key={contract.id} className="hover:bg-gray-50">
                                     <td className="px-5 py-4 text-sm text-gray-500 font-mono">{contract.id.substring(0, 8)}...</td>
                                     <td className="px-5 py-4">{contract.customer?.firstName} {contract.customer?.lastName}</td>
@@ -102,7 +129,7 @@ const Contracts: React.FC = () => {
                         ) : (
                             <tr>
                                 <td colSpan={5} className="text-center py-10 text-gray-500">
-                                    Nebyly nalezeny žádné uložené smlouvy.
+                                    Žádné smlouvy neodpovídají vašemu vyhledávání.
                                 </td>
                             </tr>
                         )}
