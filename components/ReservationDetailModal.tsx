@@ -1,16 +1,32 @@
 import React, { useState, useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
-import { X, FileText, Gauge, Car, Camera, Plus, Trash2, Loader, Image as ImageIcon } from 'lucide-react';
+import { X, FileText, Gauge, Car, Camera, Plus, Trash2, Loader, Image as ImageIcon, Edit2 } from 'lucide-react';
 import { Reservation, DamageRecord } from '../types';
 import { activateReservation, completeReservation, getDamageRecordsForVehicle, addDamageRecord } from '../services/api';
 
 // Reusable SignaturePad Component
 interface SignaturePadHandles { getSignature: () => string; clear: () => void; isEmpty: () => boolean; }
-const SignaturePad = forwardRef<SignaturePadHandles>((props, ref) => {
+const SignaturePad = forwardRef<SignaturePadHandles, { width?: number, height?: number, className?: string }>(({ width = 500, height = 200, className }, ref) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isDrawing, setIsDrawing] = useState(false);
     const [isEmpty, setIsEmpty] = useState(true);
     const getContext = () => canvasRef.current?.getContext('2d');
-    useEffect(() => { const canvas = canvasRef.current; if (canvas) { const ctx = getContext(); if (ctx) { ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.lineCap = 'round'; } } }, []);
+    
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (canvas) {
+            const ratio = Math.max(window.devicePixelRatio || 1, 1);
+            canvas.width = canvas.offsetWidth * ratio;
+            canvas.height = canvas.offsetHeight * ratio;
+            const ctx = canvas.getContext('2d');
+            if(ctx) {
+                ctx.scale(ratio, ratio);
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 2;
+                ctx.lineCap = 'round';
+            }
+        }
+    }, []);
+
     const getCoords = (e: React.MouseEvent | React.TouchEvent): { x: number, y: number } => {
         const canvas = canvasRef.current; if (!canvas) return { x: 0, y: 0 }; const rect = canvas.getBoundingClientRect();
         if ('touches' in e.nativeEvent) { return { x: e.nativeEvent.touches[0].clientX - rect.left, y: e.nativeEvent.touches[0].clientY - rect.top }; }
@@ -21,9 +37,44 @@ const SignaturePad = forwardRef<SignaturePadHandles>((props, ref) => {
     const stopDrawing = () => { const ctx = getContext(); if (ctx) { ctx.closePath(); setIsDrawing(false); } };
     const clear = () => { const ctx = getContext(); const canvas = canvasRef.current; if (ctx && canvas) { ctx.clearRect(0, 0, canvas.width, canvas.height); setIsEmpty(true); } };
     useImperativeHandle(ref, () => ({ getSignature: () => { if (isEmpty || !canvasRef.current) return ''; return canvasRef.current.toDataURL('image/png'); }, clear, isEmpty: () => isEmpty, }));
-    return (<div><canvas ref={canvasRef} className="w-full h-32 border border-gray-300 rounded-md bg-white cursor-crosshair" onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} /><button type="button" onClick={clear} className="text-sm mt-1 text-primary hover:underline">Vymazat</button></div>);
+    return (<canvas ref={canvasRef} className={className || "w-full h-32 border border-gray-300 rounded-md bg-white cursor-crosshair"} onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} />);
 });
 
+
+// Signature Capture Modal for iPad-friendly signing
+const SignatureCaptureModal: React.FC<{ isOpen: boolean; onClose: () => void; onConfirm: (signatureDataUrl: string) => void; }> = ({ isOpen, onClose, onConfirm }) => {
+    const signaturePadRef = useRef<SignaturePadHandles>(null);
+
+    if (!isOpen) return null;
+
+    const handleConfirm = () => {
+        if (signaturePadRef.current && !signaturePadRef.current.isEmpty()) {
+            onConfirm(signaturePadRef.current.getSignature());
+        } else {
+            alert("Podpis je prázdný.");
+        }
+    };
+    
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-[60] p-4">
+            <div className="bg-white rounded-lg shadow-2xl w-full h-full max-w-4xl max-h-[80vh] flex flex-col">
+                <div className="p-4 border-b flex-shrink-0">
+                    <h3 className="font-bold text-xl text-center">Podpis zákazníka</h3>
+                </div>
+                <div className="flex-grow p-4 relative">
+                    <SignaturePad ref={signaturePadRef} className="w-full h-full bg-gray-50 border rounded-md" />
+                </div>
+                <div className="p-4 flex justify-between items-center border-t flex-shrink-0">
+                    <button onClick={() => signaturePadRef.current?.clear()} className="py-2 px-4 rounded-lg bg-gray-200 hover:bg-gray-300">Vymazat</button>
+                    <div>
+                        <button onClick={onClose} className="py-2 px-4 mr-2 rounded-lg bg-gray-200 hover:bg-gray-300">Zrušit</button>
+                        <button onClick={handleConfirm} className="py-2 px-6 rounded-lg bg-primary text-white font-semibold">Potvrdit podpis</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 // Vehicle Condition Component
 const VehicleCondition: React.FC<{ reservation: Reservation; onNewDamage: (record: DamageRecord) => void; damageRecords: DamageRecord[] }> = ({ reservation, onNewDamage, damageRecords }) => {
@@ -125,7 +176,8 @@ const ReservationDetailModal: React.FC<{ isOpen: boolean; onClose: () => void; r
     const [endMileage, setEndMileage] = useState<string>('');
     const [paymentMethod, setPaymentMethod] = useState<'cash' | 'invoice'>('cash');
     const [isProcessing, setIsProcessing] = useState(false);
-    const signaturePadRef = useRef<SignaturePadHandles>(null);
+    const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
+    const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'protocol' | 'condition'>('protocol');
     const [damageRecords, setDamageRecords] = useState<DamageRecord[]>([]);
 
@@ -135,7 +187,7 @@ const ReservationDetailModal: React.FC<{ isOpen: boolean; onClose: () => void; r
             setEndMileage(reservation.status === 'active' ? String(reservation.vehicle?.currentMileage ?? '') : String(reservation.endMileage ?? ''));
             setNotes(reservation.notes || '');
             setPaymentMethod(reservation.paymentMethod || 'cash');
-            signaturePadRef.current?.clear();
+            setSignatureDataUrl(null);
             setActiveTab('protocol');
 
             const fetchDamage = async () => {
@@ -168,23 +220,22 @@ const ReservationDetailModal: React.FC<{ isOpen: boolean; onClose: () => void; r
     }
 
     const handleAction = async () => {
-        if (signaturePadRef.current?.isEmpty()) {
+        if (!signatureDataUrl) {
             alert('Protokol musí být podepsán zákazníkem.'); return;
         }
         
         setIsProcessing(true);
         try {
-            const signature = signaturePadRef.current.getSignature();
             if (isDeparture) {
                 if (!startMileage || Number(startMileage) < (reservation.vehicle?.currentMileage ?? 0)) {
                     alert('Zadejte platný stav tachometru.'); setIsProcessing(false); return;
                 }
-                await activateReservation(reservation.id, Number(startMileage), signature);
+                await activateReservation(reservation.id, Number(startMileage), signatureDataUrl);
             } else if (isArrival) {
                  if (!endMileage || Number(endMileage) <= (reservation.startMileage ?? 0)) {
                     alert('Konečný stav tachometru musí být větší než počáteční.'); setIsProcessing(false); return;
                 }
-                await completeReservation(reservation.id, Number(endMileage), notes, paymentMethod, signature);
+                await completeReservation(reservation.id, Number(endMileage), notes, paymentMethod, signatureDataUrl);
             }
             onClose();
         } catch (error) {
@@ -196,6 +247,15 @@ const ReservationDetailModal: React.FC<{ isOpen: boolean; onClose: () => void; r
     };
     
     return (
+        <>
+        <SignatureCaptureModal
+            isOpen={isSignatureModalOpen}
+            onClose={() => setIsSignatureModalOpen(false)}
+            onConfirm={(dataUrl) => {
+                setSignatureDataUrl(dataUrl);
+                setIsSignatureModalOpen(false);
+            }}
+        />
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[95vh] flex flex-col">
                 <div className="p-6 flex justify-between items-center border-b">
@@ -228,7 +288,22 @@ const ReservationDetailModal: React.FC<{ isOpen: boolean; onClose: () => void; r
                                     <div><label className="font-semibold text-gray-500">Způsob platby</label><div className="mt-2 flex space-x-4"><label className="flex items-center"><input type="radio" name="paymentMethod" value="cash" checked={paymentMethod === 'cash'} onChange={() => setPaymentMethod('cash')} className="h-4 w-4 text-primary" /><span className="ml-2">Hotově</span></label><label className="flex items-center"><input type="radio" name="paymentMethod" value="invoice" checked={paymentMethod === 'invoice'} onChange={() => setPaymentMethod('invoice')} className="h-4 w-4 text-primary" /><span className="ml-2">Fakturace</span></label></div></div>
                                 </div>
                             )}
-                            {(isDeparture || isArrival) && <div><label className="font-semibold text-gray-500 mb-2 block">Podpis zákazníka</label><SignaturePad ref={signaturePadRef} /></div>}
+                            {(isDeparture || isArrival) && (
+                                <div>
+                                    <label className="font-semibold text-gray-500 mb-2 block">Podpis zákazníka</label>
+                                    {signatureDataUrl ? (
+                                        <div className="p-2 border rounded-md bg-gray-50 text-center">
+                                            <img src={signatureDataUrl} alt="Podpis" className="mx-auto h-24 object-contain" />
+                                            <button onClick={() => setIsSignatureModalOpen(true)} className="text-sm mt-2 text-primary hover:underline">Změnit podpis</button>
+                                        </div>
+                                    ) : (
+                                        <button onClick={() => setIsSignatureModalOpen(true)} className="w-full py-3 px-4 rounded-lg bg-gray-100 hover:bg-gray-200 border-2 border-dashed flex items-center justify-center">
+                                            <Edit2 className="w-5 h-5 mr-2" />
+                                            Připravit k podpisu
+                                        </button>
+                                    )}
+                                </div>
+                            )}
                         </>
                     )}
                     {activeTab === 'condition' && (
@@ -242,13 +317,14 @@ const ReservationDetailModal: React.FC<{ isOpen: boolean; onClose: () => void; r
                 <div className="p-6 mt-auto border-t flex justify-end space-x-3">
                     <button onClick={onClose} className="py-2 px-4 rounded-lg bg-gray-200 hover:bg-gray-300">Zrušit</button>
                     {(isDeparture || isArrival) && (
-                         <button onClick={handleAction} disabled={isProcessing} className={`py-2 px-6 rounded-lg text-white font-semibold ${isDeparture ? 'bg-green-500 hover:bg-green-600' : 'bg-yellow-500 hover:bg-yellow-600'} disabled:bg-gray-400`}>
+                         <button onClick={handleAction} disabled={isProcessing || !signatureDataUrl} className={`py-2 px-6 rounded-lg text-white font-semibold ${isDeparture ? 'bg-green-500 hover:bg-green-600' : 'bg-yellow-500 hover:bg-yellow-600'} disabled:bg-gray-400 disabled:cursor-not-allowed`}>
                             {isProcessing ? 'Zpracovávám...' : (isDeparture ? 'Potvrdit a Vydat' : 'Potvrdit a Převzít')}
                         </button>
                     )}
                 </div>
             </div>
         </div>
+        </>
     );
 };
 
