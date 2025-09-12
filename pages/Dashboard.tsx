@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { getDashboardStats, onTableChange } from '../services/api';
-import { Car, Users, Calendar, AlertTriangle, LogIn, LogOut, PlusCircle } from 'lucide-react';
+import { Car, Users, Calendar, AlertTriangle, LogIn, LogOut, PlusCircle, Phone } from 'lucide-react';
 import { Page, Reservation } from '../types';
 import SelfServiceModal from '../components/SelfServiceModal';
 import { getVehicles } from '../services/api';
+import ReservationDetailModal from '../components/ReservationDetailModal';
 
 interface DashboardProps {
     setCurrentPage: (page: Page) => void;
@@ -14,6 +15,9 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentPage }) => {
     const [loading, setLoading] = useState(true);
     const [isSsmOpen, setIsSsmOpen] = useState(false);
     const [availableVehicles, setAvailableVehicles] = useState([]);
+    const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+    const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
+
 
     const fetchStats = async () => {
         try {
@@ -47,6 +51,17 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentPage }) => {
             alert('Nepodařilo se načíst dostupná vozidla.');
         }
     };
+    
+    const handleOpenDetailModal = (reservation: Reservation) => {
+        setSelectedReservation(reservation);
+        setIsDetailModalOpen(true);
+    };
+
+    const handleCloseDetailModal = () => {
+        setIsDetailModalOpen(false);
+        setSelectedReservation(null);
+        fetchStats();
+    };
 
     if (loading) return <div>Načítání přehledu...</div>;
     if (!stats) return <div>Data se nepodařilo načíst.</div>;
@@ -60,6 +75,11 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentPage }) => {
                 onLinkGenerated={() => {
                     // Optional: show a success message
                 }}
+            />
+            <ReservationDetailModal 
+                isOpen={isDetailModalOpen}
+                onClose={handleCloseDetailModal}
+                reservation={selectedReservation}
             />
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <h1 className="text-3xl font-bold text-gray-800">Přehled</h1>
@@ -110,37 +130,75 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentPage }) => {
                 <div className="bg-white p-6 rounded-lg shadow-md">
                     <h2 className="text-xl font-bold text-gray-700 mb-4">Dnešní odjezdy</h2>
                     {stats.todaysDepartures.length > 0 ? (
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                         {stats.todaysDepartures.map((r: Reservation) => (
-                            <div key={r.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
-                                <div>
-                                    <p className="font-semibold">{r.customer?.firstName} {r.customer?.lastName}</p>
-                                    <p className="text-sm text-gray-500">{r.vehicle?.name}</p>
+                            <div key={r.id} className="bg-gray-50 p-4 rounded-lg shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                                <div className="flex-grow">
+                                    <div className="flex items-center gap-3">
+                                        <LogIn className="w-6 h-6 text-primary flex-shrink-0" />
+                                        <div>
+                                            <p className="font-bold text-lg text-gray-800">{r.vehicle?.name} <span className="text-sm font-normal text-gray-500">({r.vehicle?.licensePlate})</span></p>
+                                            <p className="text-gray-600">{r.customer?.firstName} {r.customer?.lastName}</p>
+                                        </div>
+                                    </div>
+                                    <a href={`tel:${r.customer?.phone}`} className="text-primary hover:underline flex items-center gap-2 mt-2 ml-9 text-sm">
+                                        <Phone className="w-4 h-4" />
+                                        {r.customer?.phone}
+                                    </a>
                                 </div>
-                                <span className="font-bold text-primary">{new Date(r.startDate).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}</span>
+                                <div className="flex flex-col items-end w-full sm:w-auto flex-shrink-0">
+                                    <span className="font-bold text-lg text-primary mb-2">{new Date(r.startDate).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}</span>
+                                    <button 
+                                        onClick={() => handleOpenDetailModal(r)}
+                                        className="bg-primary text-white font-semibold py-2 px-4 rounded-lg hover:bg-primary-hover transition-colors w-full sm:w-auto"
+                                    >
+                                        Vydat vozidlo
+                                    </button>
+                                </div>
                             </div>
                         ))}
                         </div>
                     ) : (
-                        <p className="text-gray-500">Dnes nejsou žádné plánované odjezdy.</p>
+                        <div className="text-center py-8">
+                            <p className="text-gray-500">Pro dnešek máte klid, nejsou naplánovány žádné odjezdy.</p>
+                        </div>
                     )}
                 </div>
                 <div className="bg-white p-6 rounded-lg shadow-md">
                     <h2 className="text-xl font-bold text-gray-700 mb-4">Dnešní příjezdy</h2>
                      {stats.todaysArrivals.length > 0 ? (
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                         {stats.todaysArrivals.map((r: Reservation) => (
-                             <div key={r.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
-                                <div>
-                                    <p className="font-semibold">{r.customer?.firstName} {r.customer?.lastName}</p>
-                                    <p className="text-sm text-gray-500">{r.vehicle?.name}</p>
+                             <div key={r.id} className="bg-gray-50 p-4 rounded-lg shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                                <div className="flex-grow">
+                                    <div className="flex items-center gap-3">
+                                        <LogOut className="w-6 h-6 text-yellow-600 flex-shrink-0" />
+                                        <div>
+                                            <p className="font-bold text-lg text-gray-800">{r.vehicle?.name} <span className="text-sm font-normal text-gray-500">({r.vehicle?.licensePlate})</span></p>
+                                            <p className="text-gray-600">{r.customer?.firstName} {r.customer?.lastName}</p>
+                                        </div>
+                                    </div>
+                                    <a href={`tel:${r.customer?.phone}`} className="text-primary hover:underline flex items-center gap-2 mt-2 ml-9 text-sm">
+                                        <Phone className="w-4 h-4" />
+                                        {r.customer?.phone}
+                                    </a>
                                 </div>
-                                <span className="font-bold text-yellow-600">{new Date(r.endDate).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}</span>
+                                <div className="flex flex-col items-end w-full sm:w-auto flex-shrink-0">
+                                    <span className="font-bold text-lg text-yellow-600 mb-2">{new Date(r.endDate).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })}</span>
+                                    <button 
+                                        onClick={() => handleOpenDetailModal(r)}
+                                        className="bg-yellow-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-yellow-600 transition-colors w-full sm:w-auto"
+                                    >
+                                        Převzít vozidlo
+                                    </button>
+                                </div>
                             </div>
                         ))}
                         </div>
                     ) : (
-                        <p className="text-gray-500">Dnes nejsou žádné plánované příjezdy.</p>
+                        <div className="text-center py-8">
+                            <p className="text-gray-500">Dnes nejsou očekávány žádné příjezdy vozidel.</p>
+                        </div>
                     )}
                 </div>
             </div>

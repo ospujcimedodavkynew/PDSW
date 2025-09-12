@@ -457,30 +457,37 @@ export const createInvoice = async (invoiceData: Omit<Invoice, 'id' | 'invoiceNu
 
 // --- DASHBOARD & REPORTS ---
 export const getDashboardStats = async (): Promise<any> => {
-    const { data: vehicles, error: vError } = await supabase.from('vehicles').select('*');
+    const { data: vehicles, error: vError } = await supabase.from('vehicles').select('id, status');
     if (vError) throw vError;
 
-    const { data: reservations, error: rError } = await supabase.from('reservations').select('*');
+    const { data: rawReservations, error: rError } = await supabase.from('reservations').select('*, customers:customer_id(*), vehicles:vehicle_id(*)');
     if (rError) throw rError;
+
+    const reservations: Reservation[] = rawReservations.map(toReservation);
 
     const now = new Date();
     const todayStart = new Date(now.setHours(0, 0, 0, 0));
     const todayEnd = new Date(now.setHours(23, 59, 59, 999));
 
-    const upcomingReservations = reservations.filter(r => r.status === 'scheduled' && new Date(r.start_date) > todayEnd).length;
-    const dueBack = reservations.filter(r => r.status === 'active' && new Date(r.end_date) >= todayStart && new Date(r.end_date) <= todayEnd).length;
+    const upcomingReservations = reservations.filter(r => r.status === 'scheduled' && new Date(r.startDate) > todayEnd).length;
+    
+    const todaysArrivals = reservations.filter(r => r.status === 'active' && new Date(r.endDate) >= todayStart && new Date(r.endDate) <= todayEnd);
+    const dueBack = todaysArrivals.length;
+    
     const availableVehicles = vehicles.filter(v => v.status === 'available').length;
     
-    // Additional dashboard data
-    const todaysDepartures = reservations.filter(r => r.status === 'scheduled' && new Date(r.start_date) >= todayStart && new Date(r.start_date) <= todayEnd);
-    const todaysArrivals = reservations.filter(r => r.status === 'active' && new Date(r.end_date) >= todayStart && new Date(r.end_date) <= todayEnd);
+    const todaysDepartures = reservations.filter(r => r.status === 'scheduled' && new Date(r.startDate) >= todayStart && new Date(r.startDate) <= todayEnd);
+
+    const { count: totalCustomers, error: cError } = await supabase.from('customers').select('*', { count: 'exact', head: true });
+
 
     return { 
         upcomingReservations, 
         dueBack, 
         stats: { totalVehicles: vehicles.length, availableVehicles },
-        todaysDepartures: todaysDepartures.map(toReservation),
-        todaysArrivals: todaysArrivals.map(toReservation),
+        todaysDepartures: todaysDepartures,
+        todaysArrivals: todaysArrivals,
+        totalCustomers: cError ? 0 : totalCustomers,
      };
 };
 
