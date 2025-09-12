@@ -88,8 +88,8 @@ const toInvoice = (data: any): Invoice => ({
 
 // --- ARES API INTEGRATION ---
 export const fetchCompanyFromAres = async (ico: string): Promise<Partial<Customer>> => {
-    // FIX: Use a CORS-friendly proxy for ARES API
-    const url = `https://ares.darvins.cz/ico/${ico.trim()}`;
+    // FINAL FIX: Using a stable, managed proxy to ensure reliable communication with ARES.
+    const url = `https://van-rental-ares-proxy.vercel.app/api/ares?ico=${ico.trim()}`;
     
     try {
         const response = await fetch(url);
@@ -99,12 +99,11 @@ export const fetchCompanyFromAres = async (ico: string): Promise<Partial<Custome
         }
         const data = await response.json();
         
-        // FIX: Adjust parsing for the proxy's response structure
         return {
-            companyName: data.obchodni_jmeno || '',
+            companyName: data.obchodniJmeno || '',
             companyId: ico.trim(),
             vatId: data.dic || '',
-            address: data.sidlo?.textova_adresa || '',
+            address: data.sidlo?.textovaAdresa || '',
         };
     } catch (error) {
         console.error("ARES API fetch error:", error);
