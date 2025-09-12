@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
 import { getVehicles, getCustomers, getReservations, addCustomer, addReservation, addContract } from '../services/api';
 // FIX: 'Page' is an enum used as a value, so it cannot be imported with 'import type'.
-import { Page, type Reservation, type Vehicle, type Customer } from '../types';
+import { Page } from '../types';
+import type { Reservation, Vehicle, Customer } from '../types';
 import { UserPlus, Car, Calendar as CalendarIcon, Signature, Loader, Send, Clock } from 'lucide-react';
 
 // Signature Pad Component

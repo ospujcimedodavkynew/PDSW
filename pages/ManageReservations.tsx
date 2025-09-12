@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { getReservations, deleteReservation } from '../services/api';
+import { getReservations, deleteReservation, createInvoice } from '../services/api';
 // FIX: 'Page' is an enum used as a value, so it cannot be imported with 'import type'.
-import { Page, type Reservation } from '../types';
-import { Plus, Search, Filter, Trash2 } from 'lucide-react';
+import { Page } from '../types';
+import type { Reservation, Invoice } from '../types';
+import { Plus, Search, Filter, Trash2, FileText, Loader } from 'lucide-react';
 import ReservationDetailModal from '../components/ReservationDetailModal';
 
 // Main component for the reservation management page
@@ -13,13 +14,14 @@ const ManageReservations: React.FC<{ setCurrentPage: (page: Page) => void }> = (
     const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
+    const [generatingInvoiceId, setGeneratingInvoiceId] = useState<string | null>(null);
 
     const fetchData = async () => {
         setLoading(true);
         try {
             // Fetch reservations and sort them by start date descending
             const resData = await getReservations();
-            setReservations(resData.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()));
+            setReservations(resData.sort((a, b) => new Date(b.startDate as string).getTime() - new Date(a.startDate as string).getTime()));
         } catch (error) {
             console.error("Failed to fetch reservation data:", error);
         } finally {
@@ -65,6 +67,56 @@ const ManageReservations: React.FC<{ setCurrentPage: (page: Page) => void }> = (
                 console.error("Failed to delete reservation:", error);
                 alert("Smazání rezervace se nezdařilo.");
             }
+        }
+    };
+
+    const handleGenerateInvoice = async (reservation: Reservation) => {
+        if (!reservation.customer || !reservation.vehicle || !reservation.totalPrice) {
+            alert("Rezervaci chybí potřebné údaje pro vystavení faktury.");
+            return;
+        }
+        
+        if (!window.confirm(`Vystavit fakturu pro rezervaci zákazníka ${reservation.customer.firstName} ${reservation.customer.lastName}?`)) {
+            return;
+        }
+
+        setGeneratingInvoiceId(reservation.id);
+        try {
+            const issueDate = new Date();
+            const dueDate = new Date();
+            dueDate.setDate(issueDate.getDate() + 14); // Splatnost 14 dní
+
+            const rentalDurationMs = new Date(reservation.endDate).getTime() - new Date(reservation.startDate).getTime();
+            const rentalDays = Math.max(1, Math.ceil(rentalDurationMs / (1000 * 60 * 60 * 24)));
+            const kmLimit = rentalDays * 300;
+            const kmDriven = (reservation.endMileage ?? 0) - (reservation.startMileage ?? 0);
+            const kmOver = Math.max(0, kmDriven - kmLimit);
+            const extraCharge = kmOver * 3;
+            const rentalPrice = reservation.totalPrice - extraCharge;
+
+            const lineItems = [{ description: `Pronájem vozidla ${reservation.vehicle.name}`, amount: rentalPrice }];
+            if (extraCharge > 0) {
+                lineItems.push({ description: `Poplatek za překročení limitu km (${kmOver} km)`, amount: extraCharge });
+            }
+
+            const invoiceData: Omit<Invoice, 'id' | 'invoiceNumber'> = {
+                reservationId: reservation.id,
+                issueDate,
+                dueDate,
+                totalAmount: reservation.totalPrice,
+                lineItems,
+                customerDetailsSnapshot: reservation.customer,
+                vehicleDetailsSnapshot: reservation.vehicle,
+            };
+
+            await createInvoice(invoiceData);
+            alert("Faktura byla úspěšně vystavena.");
+            setCurrentPage(Page.INVOICES);
+
+        } catch (error) {
+            alert(`Chyba při vystavování faktury: ${error instanceof Error ? error.message : "Neznámá chyba."}`);
+        } finally {
+            setGeneratingInvoiceId(null);
         }
     };
 
@@ -134,11 +186,21 @@ const ManageReservations: React.FC<{ setCurrentPage: (page: Page) => void }> = (
                                     <td className="px-5 py-4"><span className={`px-2 py-1 text-xs font-semibold rounded-full ${statusStyles[r.status]}`}>{statusText[r.status]}</span></td>
                                     <td className="px-5 py-4">{r.customer ? `${r.customer.firstName} ${r.customer.lastName}` : 'N/A'}</td>
                                     <td className="px-5 py-4">{r.vehicle?.name || 'N/A'}</td>
-                                    <td className="px-5 py-4 whitespace-nowrap">{new Date(r.startDate).toLocaleString('cs-CZ')}</td>
-                                    <td className="px-5 py-4 whitespace-nowrap">{new Date(r.endDate).toLocaleString('cs-CZ')}</td>
+                                    <td className="px-5 py-4 whitespace-nowrap">{new Date(r.startDate as string).toLocaleString('cs-CZ')}</td>
+                                    <td className="px-5 py-4 whitespace-nowrap">{new Date(r.endDate as string).toLocaleString('cs-CZ')}</td>
                                     <td className="px-5 py-4">
                                         <div className="flex items-center space-x-4">
                                             <button onClick={() => handleOpenDetailModal(r)} className="text-primary hover:text-primary-hover font-semibold">Detail</button>
+                                            {r.status === 'completed' && (
+                                                <button 
+                                                    onClick={() => handleGenerateInvoice(r)} 
+                                                    className="text-green-600 hover:text-green-800 font-semibold flex items-center disabled:opacity-50"
+                                                    disabled={generatingInvoiceId === r.id}
+                                                    title="Vystavit fakturu"
+                                                >
+                                                    {generatingInvoiceId === r.id ? <Loader className="w-5 h-5 animate-spin"/> : <FileText className="w-5 h-5"/>}
+                                                </button>
+                                            )}
                                             <button 
                                                 onClick={() => handleDelete(r.id)} 
                                                 className="text-gray-400 hover:text-red-600"

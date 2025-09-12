@@ -1,16 +1,16 @@
-// Defines the available pages for navigation
 export enum Page {
     DASHBOARD = 'dashboard',
-    CALENDAR = 'calendar',
-    RESERVATIONS = 'reservations',
-    MANAGE_RESERVATIONS = 'manage-reservations',
     VEHICLES = 'vehicles',
     CUSTOMERS = 'customers',
-    CONTRACTS = 'contracts',
+    RESERVATIONS = 'reservations',
+    MANAGE_RESERVATIONS = 'manage_reservations',
+    CALENDAR = 'calendar',
     FINANCIALS = 'financials',
+    CONTRACTS = 'contracts',
+    REPORTS = 'reports',
+    INVOICES = 'invoices',
 }
 
-// Represents a vehicle in the fleet
 export interface Vehicle {
     id: string;
     name: string;
@@ -19,17 +19,25 @@ export interface Vehicle {
     year: number;
     licensePlate: string;
     status: 'available' | 'rented' | 'maintenance';
-    imageUrl: string;
     rate4h: number;
     rate12h: number;
     dailyRate: number;
     features: string[];
     currentMileage: number;
-    description?: string;
-    dimensions?: string;
+    description: string;
+    dimensions: string;
+    imageUrl: string;
 }
 
-// Represents a customer
+export interface ServiceRecord {
+    id: string;
+    vehicleId: string;
+    description: string;
+    cost: number;
+    mileage: number;
+    serviceDate: Date | string;
+}
+
 export interface Customer {
     id: string;
     firstName: string;
@@ -41,50 +49,53 @@ export interface Customer {
     driverLicenseImageUrl?: string;
 }
 
-// Represents a reservation
 export interface Reservation {
     id: string;
     customerId: string;
     vehicleId: string;
-    startDate: Date;
-    endDate: Date;
-    status: 'pending-customer' | 'scheduled' | 'active' | 'completed';
-    portalToken?: string;
+    startDate: Date | string;
+    endDate: Date | string;
+    status: 'scheduled' | 'active' | 'completed' | 'pending-customer';
     notes?: string;
-    customer?: Customer;
-    vehicle?: Vehicle;
     startMileage?: number;
     endMileage?: number;
+    totalPrice?: number;
+    portalToken?: string;
+    // Populated fields from API
+    customer?: Customer;
+    vehicle?: Vehicle;
 }
 
-// Represents a contract
 export interface Contract {
     id: string;
     reservationId: string;
     customerId: string;
     vehicleId: string;
-    generatedAt: Date;
+    generatedAt: Date | string;
     contractText: string;
-    customer: Customer;
-    vehicle: Vehicle;
+    // Populated fields from API
+    customer?: Customer;
+    vehicle?: Vehicle;
 }
 
-// Represents a financial transaction
 export interface FinancialTransaction {
     id: string;
-    reservationId?: string;
-    amount: number;
-    date: Date;
-    description: string;
     type: 'income' | 'expense';
+    amount: number;
+    date: Date | string;
+    description: string;
+    relatedReservationId?: string;
+    relatedVehicleId?: string;
 }
 
-// Represents a service record for a vehicle
-export interface ServiceRecord {
+export interface Invoice {
     id: string;
-    vehicleId: string;
-    serviceDate: Date;
-    description: string;
-    cost: number;
-    mileage: number;
+    invoiceNumber: string;
+    reservationId: string;
+    issueDate: Date | string;
+    dueDate: Date | string;
+    totalAmount: number;
+    lineItems: { description: string; amount: number }[];
+    customerDetailsSnapshot: Customer;
+    vehicleDetailsSnapshot: Vehicle;
 }
