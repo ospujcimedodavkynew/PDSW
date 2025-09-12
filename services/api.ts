@@ -233,7 +233,7 @@ export const activateReservation = async (reservationId: string, startMileage: n
 };
 
 export const completeReservation = async (reservationId: string, endMileage: number, notes: string): Promise<void> => {
-    // 1. Fetch reservation to get details for financial transaction
+    // 1. Fetch reservation to get details
     const { data: resData, error: fetchError } = await supabase.from('reservations').select(`
         *,
         customers:customer_id(first_name, last_name),
@@ -241,23 +241,26 @@ export const completeReservation = async (reservationId: string, endMileage: num
     `).eq('id', reservationId).single();
     if (fetchError || !resData) throw fetchError || new Error('Reservation not found');
     
-    // 2. Update reservation status
-    const { error: updateError } = await supabase.from('reservations').update({
-        status: 'completed',
-        end_mileage: endMileage,
-        notes: notes
-    }).eq('id', reservationId);
-    if (updateError) throw updateError;
-    
-    // 3. Calculate extra charge and create income transaction
+    // 2. Calculate extra charge and final price
     const durationMs = new Date(resData.end_date).getTime() - new Date(resData.start_date).getTime();
     const rentalDays = Math.max(1, Math.ceil(durationMs / (1000 * 60 * 60 * 24)));
     const kmLimit = rentalDays * 300;
     const kmDriven = endMileage - resData.start_mileage;
     const kmOver = Math.max(0, kmDriven - kmLimit);
     const extraCharge = kmOver * 3;
-    const finalPrice = resData.total_price + extraCharge;
+    const initialPrice = resData.total_price || 0;
+    const finalPrice = initialPrice + extraCharge;
 
+    // 3. Update reservation status AND total price for data consistency
+    const { error: updateError } = await supabase.from('reservations').update({
+        status: 'completed',
+        end_mileage: endMileage,
+        notes: notes,
+        total_price: finalPrice
+    }).eq('id', reservationId);
+    if (updateError) throw updateError;
+    
+    // 4. Create income transaction
     await supabase.from('financial_transactions').insert({
         reservation_id: reservationId,
         amount: finalPrice,
@@ -277,13 +280,38 @@ export const getReservationByToken = async (token: string): Promise<Reservation 
 };
 
 export const createPendingReservation = async (vehicleId: string, startDate: Date, endDate: Date): Promise<Reservation> => {
+    // 1. Fetch the selected vehicle to get its rates
+    const { data: vehicle, error: vehicleError } = await supabase
+        .from('vehicles')
+        .select('rate4h, rate12h, daily_rate')
+        .eq('id', vehicleId)
+        .single();
+    
+    if (vehicleError || !vehicle) throw vehicleError || new Error("Vozidlo nebylo nalezeno pro výpočet ceny.");
+
+    // 2. Calculate the price
+    let totalPrice = 0;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (end > start) {
+        const durationHours = (end.getTime() - start.getTime()) / (1000 * 3600);
+        if (durationHours <= 4) totalPrice = vehicle.rate4h;
+        else if (durationHours <= 12) totalPrice = vehicle.rate12h;
+        else {
+             const days = Math.ceil(durationHours / 24);
+             totalPrice = days * vehicle.daily_rate;
+        }
+    }
+    
+    // 3. Create the reservation with the calculated price
     const portalToken = crypto.randomUUID();
     const { data, error } = await supabase.from('reservations').insert({
         vehicle_id: vehicleId,
         start_date: startDate.toISOString(),
         end_date: endDate.toISOString(),
         status: 'pending-customer',
-        portal_token: portalToken
+        portal_token: portalToken,
+        total_price: totalPrice
     }).select().single();
     if (error) throw error;
     return toReservation(data);
