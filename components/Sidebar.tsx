@@ -1,6 +1,6 @@
 import React from 'react';
 import { Page } from '../types';
-import { LayoutDashboard, Car, Users, Calendar as CalendarIcon, FileText, DollarSign, BarChart, LogOut, Receipt } from 'lucide-react';
+import { LayoutDashboard, Car, Users, Calendar as CalendarIcon, FileText, DollarSign, BarChart, LogOut, Receipt, PlusCircle } from 'lucide-react';
 import { signOut } from '../services/api';
 
 interface SidebarProps {
@@ -33,8 +33,9 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage }) => {
                 <NavItem icon={<LayoutDashboard />} label="Přehled" isActive={currentPage === Page.DASHBOARD} onClick={() => setCurrentPage(Page.DASHBOARD)} />
                 <NavItem icon={<Car />} label="Vozový park" isActive={currentPage === Page.VEHICLES} onClick={() => setCurrentPage(Page.VEHICLES)} />
                 <NavItem icon={<Users />} label="Zákazníci" isActive={currentPage === Page.CUSTOMERS} onClick={() => setCurrentPage(Page.CUSTOMERS)} />
+                <NavItem icon={<PlusCircle />} label="Nová rezervace" isActive={currentPage === Page.RESERVATIONS} onClick={() => setCurrentPage(Page.RESERVATIONS)} />
+                <NavItem icon={<FileText />} label="Správa rezervací" isActive={currentPage === Page.MANAGE_RESERVATIONS} onClick={() => setCurrentPage(Page.MANAGE_RESERVATIONS)} />
                 <NavItem icon={<CalendarIcon />} label="Kalendář" isActive={currentPage === Page.CALENDAR} onClick={() => setCurrentPage(Page.CALENDAR)} />
-                <NavItem icon={<FileText />} label="Rezervace" isActive={currentPage === Page.MANAGE_RESERVATIONS || currentPage === Page.RESERVATIONS} onClick={() => setCurrentPage(Page.MANAGE_RESERVATIONS)} />
                 <NavItem icon={<Receipt />} label="Faktury" isActive={currentPage === Page.INVOICES} onClick={() => setCurrentPage(Page.INVOICES)} />
                 <NavItem icon={<DollarSign />} label="Finance" isActive={currentPage === Page.FINANCIALS} onClick={() => setCurrentPage(Page.FINANCIALS)} />
                 <NavItem icon={<FileText />} label="Smlouvy" isActive={currentPage === Page.CONTRACTS} onClick={() => setCurrentPage(Page.CONTRACTS)} />

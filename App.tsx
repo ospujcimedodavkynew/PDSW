@@ -20,6 +20,15 @@ const App: React.FC = () => {
     const [user, setUser] = useState<any | null>(null);
     const [loading, setLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState<Page>(Page.DASHBOARD);
+    const [locationHash, setLocationHash] = useState(window.location.hash);
+
+    useEffect(() => {
+        const handleHashChange = () => {
+            setLocationHash(window.location.hash);
+        };
+        window.addEventListener('hashchange', handleHashChange);
+        return () => window.removeEventListener('hashchange', handleHashChange);
+    }, []);
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(currentUser => {
@@ -31,7 +40,7 @@ const App: React.FC = () => {
 
     const renderPage = () => {
         switch (currentPage) {
-            case Page.DASHBOARD: return <Dashboard />;
+            case Page.DASHBOARD: return <Dashboard setCurrentPage={setCurrentPage} />;
             case Page.VEHICLES: return <Vehicles />;
             case Page.CUSTOMERS: return <Customers />;
             case Page.RESERVATIONS: return <Reservations setCurrentPage={setCurrentPage} />;
@@ -41,21 +50,20 @@ const App: React.FC = () => {
             case Page.CONTRACTS: return <Contracts />;
             case Page.REPORTS: return <Reports />;
             case Page.INVOICES: return <Invoices />;
-            default: return <Dashboard />;
+            default: return <Dashboard setCurrentPage={setCurrentPage} />;
         }
     };
     
-    // Check for special portal URLs
-    const urlParams = new URLSearchParams(window.location.search);
-    const portalToken = urlParams.get('portal');
-    const onlineRental = urlParams.has('online-rental');
+    // Handle special portal URLs based on hash
+    const searchParams = new URLSearchParams(window.location.search);
+    const portalToken = searchParams.get('token');
 
-    if (portalToken) {
-        return <CustomerPortal token={portalToken} />;
+    if (locationHash === '#/online-rezervace') {
+        return <OnlineRentalPortal />;
     }
 
-    if(onlineRental) {
-        return <OnlineRentalPortal />;
+    if (locationHash === '#/portal' && portalToken) {
+        return <CustomerPortal token={portalToken} />;
     }
 
     if (loading) {
