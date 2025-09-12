@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { getReservations, deleteReservation, createInvoice } from '../services/api';
 // FIX: 'Page' is an enum used as a value, so it cannot be imported with 'import type'.
 import { Page } from '../types';
-import type { Reservation, Invoice } from '../types';
+import type { Reservation, Invoice, Customer, Vehicle } from '../types';
 import { Plus, Search, Filter, Trash2, FileText, Loader } from 'lucide-react';
 import ReservationDetailModal from '../components/ReservationDetailModal';
 
@@ -19,9 +19,8 @@ const ManageReservations: React.FC<{ setCurrentPage: (page: Page) => void }> = (
     const fetchData = async () => {
         setLoading(true);
         try {
-            // Fetch reservations and sort them by start date descending
             const resData = await getReservations();
-            setReservations(resData.sort((a, b) => new Date(b.startDate as string).getTime() - new Date(a.startDate as string).getTime()));
+            setReservations(resData);
         } catch (error) {
             console.error("Failed to fetch reservation data:", error);
         } finally {
@@ -61,7 +60,6 @@ const ManageReservations: React.FC<{ setCurrentPage: (page: Page) => void }> = (
         if (window.confirm('Opravdu si přejete smazat tuto rezervaci? Tato akce je nevratná a smaže i související smlouvu.')) {
             try {
                 await deleteReservation(reservationId);
-                // Refresh list by removing the deleted item from state
                 setReservations(prev => prev.filter(r => r.id !== reservationId));
             } catch (error) {
                 console.error("Failed to delete reservation:", error);
@@ -84,7 +82,7 @@ const ManageReservations: React.FC<{ setCurrentPage: (page: Page) => void }> = (
         try {
             const issueDate = new Date();
             const dueDate = new Date();
-            dueDate.setDate(issueDate.getDate() + 14); // Splatnost 14 dní
+            dueDate.setDate(issueDate.getDate() + 14);
 
             const rentalDurationMs = new Date(reservation.endDate).getTime() - new Date(reservation.startDate).getTime();
             const rentalDays = Math.max(1, Math.ceil(rentalDurationMs / (1000 * 60 * 60 * 24)));
@@ -105,8 +103,9 @@ const ManageReservations: React.FC<{ setCurrentPage: (page: Page) => void }> = (
                 dueDate,
                 totalAmount: reservation.totalPrice,
                 lineItems,
-                customerDetailsSnapshot: reservation.customer,
-                vehicleDetailsSnapshot: reservation.vehicle,
+                customerDetailsSnapshot: reservation.customer as Customer,
+                vehicleDetailsSnapshot: reservation.vehicle as Vehicle,
+                paymentMethod: reservation.paymentMethod || 'invoice',
             };
 
             await createInvoice(invoiceData);

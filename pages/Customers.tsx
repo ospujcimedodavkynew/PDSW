@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { getCustomers } from '../services/api';
 import type { Customer } from '../types';
-import { Plus, User, Mail, Phone, Edit, MapPin, Search } from 'lucide-react';
+import { Plus, User, Mail, Phone, Edit, MapPin, Search, Building } from 'lucide-react';
 import CustomerFormModal from '../components/CustomerFormModal';
 
 const CustomerCard: React.FC<{ customer: Customer; onEdit: (customer: Customer) => void }> = ({ customer, onEdit }) => {
@@ -14,6 +14,9 @@ const CustomerCard: React.FC<{ customer: Customer; onEdit: (customer: Customer) 
                     </div>
                     <div>
                         <h3 className="text-lg font-bold text-gray-800">{customer.firstName} {customer.lastName}</h3>
+                        {customer.companyName && (
+                            <p className="flex items-center text-sm text-gray-500"><Building className="w-4 h-4 mr-1.5" />{customer.companyName}</p>
+                        )}
                     </div>
                 </div>
                 <div className="space-y-2 text-sm">
@@ -60,7 +63,8 @@ const Customers: React.FC = () => {
             const fullName = `${customer.firstName} ${customer.lastName}`.toLowerCase();
             return (
                 fullName.includes(searchLower) ||
-                customer.email.toLowerCase().includes(searchLower)
+                customer.email.toLowerCase().includes(searchLower) ||
+                customer.companyName?.toLowerCase().includes(searchLower)
             );
         });
     }, [customers, searchTerm]);

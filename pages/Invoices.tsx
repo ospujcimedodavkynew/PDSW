@@ -32,9 +32,20 @@ const InvoiceDetailModal: React.FC<{ invoice: Invoice; onClose: () => void; }> =
                     {/* Customer Info */}
                     <div className="pt-6">
                         <h3 className="text-lg font-semibold text-gray-600">Odběratel</h3>
-                        <p className="font-bold text-xl">{invoice.customerDetailsSnapshot.firstName} {invoice.customerDetailsSnapshot.lastName}</p>
-                        <p>{invoice.customerDetailsSnapshot.address}</p>
-                        <p>{invoice.customerDetailsSnapshot.email}</p>
+                        {invoice.customerDetailsSnapshot.companyName ? (
+                            <>
+                                <p className="font-bold text-xl">{invoice.customerDetailsSnapshot.companyName}</p>
+                                <p>{invoice.customerDetailsSnapshot.address}</p>
+                                <p>IČO: {invoice.customerDetailsSnapshot.companyId || 'N/A'}, DIČ: {invoice.customerDetailsSnapshot.vatId || 'N/A'}</p>
+                                <p>Jednající: {invoice.customerDetailsSnapshot.firstName} {invoice.customerDetailsSnapshot.lastName}</p>
+                            </>
+                        ) : (
+                            <>
+                                <p className="font-bold text-xl">{invoice.customerDetailsSnapshot.firstName} {invoice.customerDetailsSnapshot.lastName}</p>
+                                <p>{invoice.customerDetailsSnapshot.address}</p>
+                                <p>{invoice.customerDetailsSnapshot.email}</p>
+                            </>
+                        )}
                     </div>
 
                     {/* Line Items Table */}
@@ -75,28 +86,27 @@ const InvoiceDetailModal: React.FC<{ invoice: Invoice; onClose: () => void; }> =
                         </div>
                     </div>
 
-                     {/* Footer */}
-                    <div className="mt-12 pt-6 border-t text-sm text-gray-500">
-                        <p>Platbu proveďte na bankovní účet: <strong>2301430030/2010</strong></p>
+                    {/* Footer */}
+                    <div className="mt-12 pt-6 border-t text-sm text-gray-500 space-y-2">
+                        <p className="font-semibold text-base text-gray-700">Forma úhrady: <span className="font-bold">{invoice.paymentMethod === 'cash' ? 'Hotově' : 'Převodem na účet'}</span></p>
+                        {invoice.paymentMethod === 'invoice' && (
+                            <p>Platbu proveďte na bankovní účet: <strong>2301430030/2010</strong></p>
+                        )}
                         <p className="mt-2">Děkujeme za využití našich služeb.</p>
                     </div>
                 </div>
             </div>
-            {/* FIX: Replaced Next.js specific 'styled-jsx' syntax with a standard React 'style' tag. */}
             <style>{`
                 @media print {
                     body > *:not(#invoice-modal) { display: none; }
-                    #invoice-modal { 
-                        position: absolute; 
-                        top: 0; 
-                        left: 0; 
-                        width: 100%; 
-                        max-width: 100%;
-                        max-height: 100%;
-                        box-shadow: none;
-                        border-radius: 0;
-                        border: none;
+                    #invoice-modal, #invoice-modal > div { 
+                        position: absolute !important; 
+                        top: 0; left: 0; 
+                        width: 100%; max-width: 100%; max-height: 100%;
+                        box-shadow: none; border-radius: 0; border: none;
+                        overflow: visible !important;
                     }
+                    #invoice-content { overflow: visible !important; }
                 }
             `}</style>
         </div>
@@ -130,8 +140,10 @@ const Invoices: React.FC = () => {
         return invoices.filter(invoice => {
             const searchLower = searchTerm.toLowerCase();
             const customerName = `${invoice.customerDetailsSnapshot.firstName} ${invoice.customerDetailsSnapshot.lastName}`.toLowerCase();
+            const companyName = invoice.customerDetailsSnapshot.companyName?.toLowerCase() || '';
             return (
                 customerName.includes(searchLower) ||
+                companyName.includes(searchLower) ||
                 invoice.invoiceNumber.toLowerCase().includes(searchLower)
             );
         });
@@ -171,7 +183,7 @@ const Invoices: React.FC = () => {
                             filteredInvoices.map(invoice => (
                                 <tr key={invoice.id} className="hover:bg-gray-50">
                                     <td className="px-5 py-4 font-semibold text-primary">{invoice.invoiceNumber}</td>
-                                    <td className="px-5 py-4">{invoice.customerDetailsSnapshot.firstName} {invoice.customerDetailsSnapshot.lastName}</td>
+                                    <td className="px-5 py-4">{invoice.customerDetailsSnapshot.companyName || `${invoice.customerDetailsSnapshot.firstName} ${invoice.customerDetailsSnapshot.lastName}`}</td>
                                     <td className="px-5 py-4">{new Date(invoice.issueDate).toLocaleDateString('cs-CZ')}</td>
                                     <td className="px-5 py-4 text-right font-bold">{invoice.totalAmount.toLocaleString('cs-CZ')} Kč</td>
                                     <td className="px-5 py-4 text-center">

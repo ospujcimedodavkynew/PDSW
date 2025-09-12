@@ -12,16 +12,20 @@ interface CustomerFormModalProps {
 
 const CustomerFormModal: React.FC<CustomerFormModalProps> = ({ isOpen, onClose, onSaveSuccess, customer }) => {
     const getInitialData = (c: Partial<Customer> | null): Partial<Customer> => c || {
-        firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: ''
+        firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: '',
+        companyName: '', companyId: '', vatId: ''
     };
 
     const [formData, setFormData] = useState<Partial<Customer>>(getInitialData(customer));
+    const [isCompany, setIsCompany] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         if (isOpen) {
-            setFormData(getInitialData(customer));
+            const initialData = getInitialData(customer);
+            setFormData(initialData);
+            setIsCompany(!!(initialData.companyName || initialData.companyId || initialData.vatId));
             setError(null);
         }
     }, [customer, isOpen]);
@@ -30,11 +34,19 @@ const CustomerFormModal: React.FC<CustomerFormModalProps> = ({ isOpen, onClose, 
         e.preventDefault();
         setIsSaving(true);
         setError(null);
+        
+        const dataToSave = { ...formData };
+        if (!isCompany) {
+            dataToSave.companyName = undefined;
+            dataToSave.companyId = undefined;
+            dataToSave.vatId = undefined;
+        }
+
         try {
-            if (formData.id) {
-                await updateCustomer(formData as Customer);
+            if (dataToSave.id) {
+                await updateCustomer(dataToSave as Customer);
             } else {
-                await addCustomer(formData as Omit<Customer, 'id'>);
+                await addCustomer(dataToSave as Omit<Customer, 'id'>);
             }
             onSaveSuccess();
         } catch (err) {
@@ -66,6 +78,23 @@ const CustomerFormModal: React.FC<CustomerFormModalProps> = ({ isOpen, onClose, 
                         <input type="text" placeholder="Číslo ŘP" value={formData.driverLicenseNumber || ''} onChange={e => setFormData({ ...formData, driverLicenseNumber: e.target.value })} className="w-full p-2 border rounded" required />
                     </div>
 
+                    <div className="pt-2">
+                        <label className="flex items-center">
+                            <input type="checkbox" checked={isCompany} onChange={e => setIsCompany(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary" />
+                            <span className="ml-2 text-sm font-medium text-gray-700">Nakupuji na firmu</span>
+                        </label>
+                    </div>
+
+                    {isCompany && (
+                        <div className="space-y-4 pt-4 border-t mt-4">
+                            <input type="text" placeholder="Název firmy" value={formData.companyName || ''} onChange={e => setFormData({ ...formData, companyName: e.target.value })} className="w-full p-2 border rounded" required={isCompany} />
+                            <div className="grid grid-cols-2 gap-4">
+                                <input type="text" placeholder="IČO" value={formData.companyId || ''} onChange={e => setFormData({ ...formData, companyId: e.target.value })} className="w-full p-2 border rounded" />
+                                <input type="text" placeholder="DIČ" value={formData.vatId || ''} onChange={e => setFormData({ ...formData, vatId: e.target.value })} className="w-full p-2 border rounded" />
+                            </div>
+                        </div>
+                    )}
+
                     {error && (
                         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
                             <strong className="font-bold">Chyba: </strong>
@@ -73,7 +102,7 @@ const CustomerFormModal: React.FC<CustomerFormModalProps> = ({ isOpen, onClose, 
                         </div>
                     )}
                     
-                    <div className="flex justify-end space-x-3 pt-2">
+                    <div className="flex justify-end space-x-3 pt-4 border-t">
                         <button type="button" onClick={onClose} className="py-2 px-4 rounded-lg bg-gray-200 hover:bg-gray-300">Zrušit</button>
                         <button type="submit" disabled={isSaving} className="py-2 px-4 rounded-lg bg-primary text-white hover:bg-primary-hover disabled:bg-gray-400">
                             {isSaving ? 'Ukládám...' : 'Uložit'}
