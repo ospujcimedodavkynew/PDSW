@@ -1,3 +1,4 @@
+
 export enum Page {
     DASHBOARD = 'dashboard',
     VEHICLES = 'vehicles',
@@ -9,6 +10,7 @@ export enum Page {
     CONTRACTS = 'contracts',
     REPORTS = 'reports',
     INVOICES = 'invoices',
+    SETTINGS = 'settings',
 }
 
 export interface Vehicle {
@@ -47,6 +49,10 @@ export interface Customer {
     driverLicenseNumber: string;
     address: string;
     driverLicenseImageUrl?: string;
+    // New fields for company details
+    companyName?: string;
+    companyId?: string; // IČO
+    vatId?: string;     // DIČ
 }
 
 export interface Reservation {
@@ -61,6 +67,7 @@ export interface Reservation {
     endMileage?: number;
     totalPrice?: number;
     portalToken?: string;
+    paymentMethod?: 'cash' | 'invoice';
     // Populated fields from API
     customer?: Customer;
     vehicle?: Vehicle;
@@ -95,7 +102,15 @@ export interface Invoice {
     issueDate: Date | string;
     dueDate: Date | string;
     totalAmount: number;
+    paymentMethod: 'cash' | 'invoice';
     lineItems: { description: string; amount: number }[];
     customerDetailsSnapshot: Customer;
     vehicleDetailsSnapshot: Vehicle;
+}
+
+export interface CompanySettings {
+    companyName: string;
+    companyAddress: string;
+    companyIco: string;
+    bankAccount: string;
 }

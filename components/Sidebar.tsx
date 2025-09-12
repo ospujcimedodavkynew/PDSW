@@ -1,6 +1,7 @@
+
 import React from 'react';
 import { Page } from '../types';
-import { LayoutDashboard, Car, Users, Calendar as CalendarIcon, FileText, DollarSign, BarChart, LogOut, Receipt, PlusCircle } from 'lucide-react';
+import { LayoutDashboard, Car, Users, Calendar as CalendarIcon, FileText, DollarSign, BarChart, LogOut, Receipt, PlusCircle, Settings } from 'lucide-react';
 import { signOut } from '../services/api';
 
 interface SidebarProps {
@@ -42,7 +43,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage }) => {
                 <NavItem icon={<BarChart />} label="Reporty" isActive={currentPage === Page.REPORTS} onClick={() => setCurrentPage(Page.REPORTS)} />
             </nav>
             <div className="p-4 border-t">
-                <button onClick={handleLogout} className="flex items-center w-full px-4 py-3 text-left text-gray-600 hover:bg-gray-100 rounded-md">
+                 <NavItem icon={<Settings />} label="Nastavení" isActive={currentPage === Page.SETTINGS} onClick={() => setCurrentPage(Page.SETTINGS)} />
+                <button onClick={handleLogout} className="flex items-center w-full px-4 py-3 mt-2 text-left text-gray-600 hover:bg-gray-100 rounded-md">
                     <LogOut />
                     <span className="ml-4 font-medium">Odhlásit se</span>
                 </button>

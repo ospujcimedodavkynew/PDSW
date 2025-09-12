@@ -1,6 +1,6 @@
 
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
-import type { Vehicle, ServiceRecord, Customer, Reservation, Contract, FinancialTransaction, Invoice } from '../types';
+import type { Vehicle, ServiceRecord, Customer, Reservation, Contract, FinancialTransaction, Invoice, CompanySettings } from '../types';
 
 // --- SUPABASE CLIENT INITIALIZATION ---
 const supabaseUrl = (window as any).env?.VITE_SUPABASE_URL;
@@ -87,6 +87,28 @@ const toInvoice = (data: any): Invoice => ({
     vehicleDetailsSnapshot: data.vehicle_details_snapshot,
 });
 
+// --- ARES API INTEGRATION ---
+export const fetchCompanyFromAres = async (ico: string): Promise<Partial<Customer>> => {
+    const url = `https://ares.gov.cz/ekonomicke-subjekty-v-ares/rest/ekonomicke-subjekty/${ico.trim()}`;
+    
+    try {
+        const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        if (!response.ok) {
+            if (response.status === 404) throw new Error('Firma s daným IČO nebyla nalezena.');
+            throw new Error(`Chyba ARES: Server odpověděl se statusem ${response.status}`);
+        }
+        const data = await response.json();
+        return {
+            companyName: data.obchodniJmeno || '',
+            companyId: ico.trim(),
+            vatId: data.dic || '',
+            address: data.sidlo?.textovaAdresa || '',
+        };
+    } catch (error) {
+        console.error("ARES API fetch error:", error);
+        throw error; // Re-throw to be caught by the component
+    }
+};
 
 // --- AUTHENTICATION ---
 export const signInWithPassword = async (email: string, password: string) => {
@@ -382,16 +404,29 @@ export const getInvoices = async (): Promise<Invoice[]> => {
     return data.map(toInvoice);
 };
 
-export const createInvoice = async (invoiceData: Omit<Invoice, 'id' | 'invoiceNumber'>): Promise<Invoice> => {
-    // FIX: Destructure `count` from the response instead of `data`. With `head: true`, `data` is null and the count is in the `count` property.
+export const createInvoice = async (invoiceData: Omit<Invoice, 'id' | 'invoiceNumber' | 'issueDate' | 'dueDate'>): Promise<Invoice> => {
     const { count, error: countError } = await supabase.from('invoices').select('*', { count: 'exact', head: true });
     if (countError) throw countError;
     const invoiceNumber = `FAKT-${new Date().getFullYear()}-${(count || 0) + 1}`;
 
+    const issueDate = new Date();
+    let dueDate = new Date();
+    
+    if (invoiceData.paymentMethod === 'cash') {
+        dueDate = issueDate; // Splatnost je stejný den
+    } else {
+        dueDate.setDate(issueDate.getDate() + 14); // Standardní 14denní splatnost
+    }
+
     const { data, error } = await supabase.from('invoices').insert({
-        invoice_number: invoiceNumber, reservation_id: invoiceData.reservationId, issue_date: invoiceData.issueDate,
-        due_date: invoiceData.dueDate, total_amount: invoiceData.totalAmount, line_items: invoiceData.lineItems,
-        customer_details_snapshot: invoiceData.customerDetailsSnapshot, vehicle_details_snapshot: invoiceData.vehicleDetailsSnapshot,
+        invoice_number: invoiceNumber,
+        reservation_id: invoiceData.reservationId,
+        issue_date: issueDate.toISOString(),
+        due_date: dueDate.toISOString(),
+        total_amount: invoiceData.totalAmount,
+        line_items: invoiceData.lineItems,
+        customer_details_snapshot: invoiceData.customerDetailsSnapshot,
+        vehicle_details_snapshot: invoiceData.vehicleDetailsSnapshot,
         payment_method: invoiceData.paymentMethod
     }).select().single();
     if (error) throw error;
@@ -428,6 +463,33 @@ export const getReportsData = async () => {
     // This is a placeholder for more complex reporting logic
     return {};
 };
+
+// --- COMPANY SETTINGS ---
+export const getCompanySettings = async (): Promise<CompanySettings> => {
+    const { data, error } = await supabase.from('settings').select('*').eq('id', 1).single();
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+        throw error;
+    }
+    return {
+        companyName: data?.company_name || '',
+        companyAddress: data?.company_address || '',
+        companyIco: data?.company_ico || '',
+        bankAccount: data?.bank_account || '',
+    };
+};
+
+export const updateCompanySettings = async (settings: CompanySettings): Promise<void> => {
+    const { error } = await supabase.from('settings').upsert({
+        id: 1,
+        company_name: settings.companyName,
+        company_address: settings.companyAddress,
+        company_ico: settings.companyIco,
+        bank_account: settings.bankAccount,
+        updated_at: new Date().toISOString(),
+    }).eq('id', 1);
+    if (error) throw error;
+};
+
 
 // --- REALTIME ---
 export const onTableChange = (table: string, callback: () => void) => {

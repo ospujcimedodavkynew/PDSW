@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Page } from './types';
 import Sidebar from './components/Sidebar';
@@ -11,6 +12,7 @@ import Financials from './pages/Financials';
 import Contracts from './pages/Contracts';
 import Reports from './pages/Reports';
 import Invoices from './pages/Invoices';
+import Settings from './pages/Settings';
 import Login from './pages/Login';
 import CustomerPortal from './pages/CustomerPortal';
 import OnlineRentalPortal from './pages/OnlineRentalPortal';
@@ -50,6 +52,7 @@ const App: React.FC = () => {
             case Page.CONTRACTS: return <Contracts />;
             case Page.REPORTS: return <Reports />;
             case Page.INVOICES: return <Invoices />;
+            case Page.SETTINGS: return <Settings />;
             default: return <Dashboard setCurrentPage={setCurrentPage} />;
         }
     };

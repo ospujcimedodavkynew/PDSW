@@ -1,9 +1,10 @@
+
 import React, { useEffect, useState, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
-import { getVehicles, getCustomers, getReservations, addCustomer, addReservation, addContract } from '../services/api';
+import { getVehicles, getCustomers, getReservations, addCustomer, addReservation, addContract, fetchCompanyFromAres } from '../services/api';
 // FIX: 'Page' is an enum used as a value, so it cannot be imported with 'import type'.
 import { Page } from '../types';
 import type { Reservation, Vehicle, Customer } from '../types';
-import { UserPlus, Car, Calendar as CalendarIcon, Signature, Loader, Send, Clock } from 'lucide-react';
+import { UserPlus, Car, Calendar as CalendarIcon, Signature, Loader, Send, Clock, Building, Search } from 'lucide-react';
 
 // Signature Pad Component
 interface SignaturePadHandles {
@@ -118,14 +119,19 @@ const Reservations: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setC
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Form states
+    const [customerType, setCustomerType] = useState<'person' | 'company'>('person');
     const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
     const [isNewCustomer, setIsNewCustomer] = useState(false);
-    const [newCustomerData, setNewCustomerData] = useState<Omit<Customer, 'id'>>({ firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: '' });
+    const [newCustomerData, setNewCustomerData] = useState<Omit<Customer, 'id'>>({ firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: '', companyName: '', companyId: '', vatId: '' });
     const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [duration, setDuration] = useState<{type: 'hours' | 'days', value: number} | null>(null);
     const signaturePadRef = useRef<SignaturePadHandles>(null);
+
+    // ARES integration states
+    const [aresLoading, setAresLoading] = useState(false);
+    const [aresError, setAresError] = useState<string | null>(null);
 
     // Fetch initial data
     useEffect(() => {
@@ -145,6 +151,28 @@ const Reservations: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setC
         };
         fetchData();
     }, []);
+
+    const handleAresFetch = async () => {
+        if (!newCustomerData.companyId) {
+            setAresError('Zadejte prosím IČO.');
+            return;
+        }
+        setAresLoading(true);
+        setAresError(null);
+        try {
+            const companyDetails = await fetchCompanyFromAres(newCustomerData.companyId);
+            setNewCustomerData(prev => ({
+                ...prev,
+                companyName: companyDetails.companyName || prev.companyName,
+                vatId: companyDetails.vatId || prev.vatId,
+                address: companyDetails.address || prev.address,
+            }));
+        } catch (err) {
+            setAresError(err instanceof Error ? err.message : 'Nepodařilo se načíst údaje.');
+        } finally {
+            setAresLoading(false);
+        }
+    };
 
     const handleDurationChange = (type: 'hours' | 'days', value: number) => {
         if (isNaN(value) || value <= 0) {
@@ -206,7 +234,7 @@ const Reservations: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setC
     const resetForm = () => {
         setSelectedCustomerId('');
         setIsNewCustomer(false);
-        setNewCustomerData({ firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: '' });
+        setNewCustomerData({ firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: '', companyName: '', companyId: '', vatId: '' });
         setSelectedVehicleId('');
         setStartDate('');
         setEndDate('');
@@ -218,7 +246,8 @@ const Reservations: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setC
         e.preventDefault();
         
         if (!isNewCustomer && !selectedCustomerId) { alert("Vyberte prosím zákazníka."); return; }
-        if (isNewCustomer && (!newCustomerData.firstName || !newCustomerData.lastName || !newCustomerData.email)) { alert("Vyplňte prosím údaje o novém zákazníkovi."); return; }
+        if (isNewCustomer && customerType === 'person' && (!newCustomerData.firstName || !newCustomerData.lastName || !newCustomerData.email)) { alert("Vyplňte prosím údaje o novém zákazníkovi."); return; }
+        if (isNewCustomer && customerType === 'company' && (!newCustomerData.companyName || !newCustomerData.companyId)) { alert("Vyplňte prosím IČO a název firmy."); return; }
         if (!selectedVehicleId) { alert("Vyberte prosím vozidlo."); return; }
         if (!startDate || !endDate) { alert("Vyberte prosím období pronájmu."); return; }
         if (new Date(endDate) <= new Date(startDate)) { alert("Datum konce musí být po datu začátku."); return; }
@@ -231,13 +260,14 @@ const Reservations: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setC
             let finalCustomerId = selectedCustomerId;
 
             if (isNewCustomer) {
-                // BUG FIX: Check if customer with this email already exists
                 const trimmedEmail = newCustomerData.email.trim().toLowerCase();
-                const existingCustomer = customers.find(c => c.email.toLowerCase() === trimmedEmail);
-                if (existingCustomer) {
-                    alert("Zákazník s tímto e-mailem již existuje. Vyberte ho prosím ze seznamu stávajících zákazníků.");
-                    setIsSubmitting(false);
-                    return;
+                if (trimmedEmail) { // Email is not mandatory for companies
+                    const existingCustomer = customers.find(c => c.email.toLowerCase() === trimmedEmail);
+                    if (existingCustomer) {
+                        alert("Zákazník s tímto e-mailem již existuje. Vyberte ho prosím ze seznamu stávajících zákazníků.");
+                        setIsSubmitting(false);
+                        return;
+                    }
                 }
                 const newCustomer = await addCustomer({ ...newCustomerData, email: trimmedEmail });
                 finalCustomerId = newCustomer.id;
@@ -256,7 +286,7 @@ const Reservations: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setC
                 totalPrice: totalPrice,
             });
 
-            const contractText = `SMLOUVA O NÁJMU DOPRAVNÍHO PROSTŘEDKU\n=========================================\n\nČlánek I. - Smluvní strany\n-----------------------------------------\nPronajímatel:\nMilan Gula\nGhegova 17, Brno, 60200\nWeb: Pujcimedodavky.cz\nIČO: 07031653\n(dále jen "pronajímatel")\n\nNájemce:\nJméno: ${customerForContract.firstName} ${customerForContract.lastName}\nEmail: ${customerForContract.email}\nTelefon: ${customerForContract.phone}\nČíslo ŘP: ${customerForContract.driverLicenseNumber}\nAdresa: ${customerForContract.address}\n(dále jen "nájemce")\n\nČlánek II. - Předmět nájmu\n-----------------------------------------\nPronajímatel tímto přenechává nájemci do dočasného užívání následující motorové vozidlo:\nVozidlo: ${selectedVehicle?.name}\nSPZ: ${selectedVehicle?.licensePlate}\nRok výroby: ${selectedVehicle?.year}\n\nČlánek III. - Doba nájmu a cena\n-----------------------------------------\nDoba nájmu: od ${new Date(startDate).toLocaleString('cs-CZ')} do ${new Date(endDate).toLocaleString('cs-CZ')}\nCelková cena nájmu: ${totalPrice.toLocaleString('cs-CZ')} Kč\n\nČlánek IV. - Práva a povinnosti\n-----------------------------------------\n1. Nájemce potvrzuje, že vozidlo převzal v řádném technickém stavu, bez zjevných závad a s kompletní povinnou výbavou.\n2. Nájemce je povinen užívat vozidlo s péčí řádného hospodáře a chránit ho před poškozením, ztrátou či zničením.\n\nČlánek V. - Spoluúčast a poškození vozidla\n-----------------------------------------\nV případě poškození vozidla zaviněného nájemcem se sjednává spoluúčast ve výši 5.000 Kč až 10.000 Kč dle rozsahu poškození.\n\nČlánek VI. - Stav kilometrů a limit\n-----------------------------------------\nPočáteční stav kilometrů: ${(selectedVehicle?.currentMileage ?? 0).toLocaleString('cs-CZ')} km\nDenní limit pro nájezd je 300 km. Za každý kilometr nad tento limit bude účtován poplatek 3 Kč/km.\n\nČlánek VII. - Závěrečná ustanovení\n-----------------------------------------\nTato smlouva je vyhotovena elektronicky. Nájemce svým digitálním podpisem stvrzuje, že se seznámil s obsahem smlouvy, souhlasí s ním a vozidlo v uvedeném stavu přebírá.`;
+            const contractText = `SMLOUVA O NÁJMU DOPRAVNÍHO PROSTŘEDKU\n=========================================\n\nČlánek I. - Smluvní strany\n-----------------------------------------\nPronajímatel:\nMilan Gula\nGhegova 17, Brno, 60200\nWeb: Pujcimedodavky.cz\nIČO: 07031653\n(dále jen "pronajímatel")\n\nNájemce:\n${customerForContract.companyName ? `Firma: ${customerForContract.companyName}\nIČO: ${customerForContract.companyId}\nDIČ: ${customerForContract.vatId || 'N/A'}\nKontaktní osoba: ${customerForContract.firstName} ${customerForContract.lastName}` : `Jméno: ${customerForContract.firstName} ${customerForContract.lastName}`}\nEmail: ${customerForContract.email}\nTelefon: ${customerForContract.phone}\nČíslo ŘP: ${customerForContract.driverLicenseNumber}\nAdresa: ${customerForContract.address}\n(dále jen "nájemce")\n\nČlánek II. - Předmět nájmu\n-----------------------------------------\nPronajímatel tímto přenechává nájemci do dočasného užívání následující motorové vozidlo:\nVozidlo: ${selectedVehicle?.name}\nSPZ: ${selectedVehicle?.licensePlate}\nRok výroby: ${selectedVehicle?.year}\n\nČlánek III. - Doba nájmu a cena\n-----------------------------------------\nDoba nájmu: od ${new Date(startDate).toLocaleString('cs-CZ')} do ${new Date(endDate).toLocaleString('cs-CZ')}\nCelková cena nájmu: ${totalPrice.toLocaleString('cs-CZ')} Kč\n\nČlánek IV. - Práva a povinnosti\n-----------------------------------------\n1. Nájemce potvrzuje, že vozidlo převzal v řádném technickém stavu, bez zjevných závad a s kompletní povinnou výbavou.\n2. Nájemce je povinen užívat vozidlo s péčí řádného hospodáře a chránit ho před poškozením, ztrátou či zničením.\n\nČlánek V. - Spoluúčast a poškození vozidla\n-----------------------------------------\nV případě poškození vozidla zaviněného nájemcem se sjednává spoluúčast ve výši 5.000 Kč až 10.000 Kč dle rozsahu poškození.\n\nČlánek VI. - Stav kilometrů a limit\n-----------------------------------------\nPočáteční stav kilometrů: ${(selectedVehicle?.currentMileage ?? 0).toLocaleString('cs-CZ')} km\nDenní limit pro nájezd je 300 km. Za každý kilometr nad tento limit bude účtován poplatek 3 Kč/km.\n\nČlánek VII. - Závěrečná ustanovení\n-----------------------------------------\nTato smlouva je vyhotovena elektronicky. Nájemce svým digitálním podpisem stvrzuje, že se seznámil s obsahem smlouvy, souhlasí s ním a vozidlo v uvedeném stavu přebírá.`;
             
             await addContract({
                 reservationId: newReservation.id,
@@ -284,6 +314,60 @@ const Reservations: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setC
 
     if (loading) return <div className="flex justify-center items-center h-full"><Loader className="w-8 h-8 animate-spin text-primary"/></div>;
 
+    const renderNewCustomerForm = () => {
+        if (!isNewCustomer) return null;
+    
+        if (customerType === 'company') {
+            return (
+                <div className="mt-4 space-y-3 p-4 bg-gray-50 rounded-md border">
+                    <h3 className="font-semibold text-gray-600">Údaje nové firmy</h3>
+                    <div className="flex items-start gap-2">
+                        <div className="flex-grow">
+                            <label className="text-sm font-medium text-gray-700">IČO</label>
+                            <input type="text" placeholder="IČO" value={newCustomerData.companyId || ''} onChange={e => setNewCustomerData({...newCustomerData, companyId: e.target.value})} className="w-full p-2 border rounded mt-1" required={isNewCustomer} />
+                            {aresError && <p className="text-red-500 text-xs mt-1">{aresError}</p>}
+                        </div>
+                        <button type="button" onClick={handleAresFetch} disabled={aresLoading} className="py-2 px-3 mt-7 rounded-lg bg-gray-600 text-white hover:bg-gray-700 disabled:bg-gray-400 text-sm flex items-center">
+                            {aresLoading ? <Loader className="w-4 h-4 animate-spin"/> : <Search className="w-4 h-4"/>}
+                            <span className="ml-2">Načíst z ARES</span>
+                        </button>
+                    </div>
+                    <input type="text" placeholder="Název firmy" value={newCustomerData.companyName || ''} onChange={e => setNewCustomerData({...newCustomerData, companyName: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
+                    <input type="text" placeholder="Adresa" value={newCustomerData.address || ''} onChange={e => setNewCustomerData({...newCustomerData, address: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
+                     <input type="text" placeholder="DIČ (pokud existuje)" value={newCustomerData.vatId || ''} onChange={e => setNewCustomerData({...newCustomerData, vatId: e.target.value})} className="w-full p-2 border rounded" />
+                    <div className="pt-2 border-t">
+                        <h4 className="font-semibold text-gray-600 text-sm my-2">Kontaktní osoba</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                            <input type="text" placeholder="Jméno" value={newCustomerData.firstName} onChange={e => setNewCustomerData({...newCustomerData, firstName: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
+                            <input type="text" placeholder="Příjmení" value={newCustomerData.lastName} onChange={e => setNewCustomerData({...newCustomerData, lastName: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
+                        </div>
+                        <input type="email" placeholder="Kontaktní email" value={newCustomerData.email} onChange={e => setNewCustomerData({...newCustomerData, email: e.target.value})} className="w-full p-2 border rounded mt-3" required={isNewCustomer} />
+                        <div className="grid grid-cols-2 gap-4 mt-3">
+                             <input type="tel" placeholder="Kontaktní telefon" value={newCustomerData.phone} onChange={e => setNewCustomerData({...newCustomerData, phone: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
+                            <input type="text" placeholder="Číslo ŘP kontaktní osoby" value={newCustomerData.driverLicenseNumber} onChange={e => setNewCustomerData({...newCustomerData, driverLicenseNumber: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+    
+        return (
+            <div className="mt-4 space-y-3 p-4 bg-gray-50 rounded-md border">
+                <h3 className="font-semibold text-gray-600">Údaje nového zákazníka</h3>
+                <div className="grid grid-cols-2 gap-4">
+                    <input type="text" placeholder="Jméno" value={newCustomerData.firstName} onChange={e => setNewCustomerData({...newCustomerData, firstName: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
+                    <input type="text" placeholder="Příjmení" value={newCustomerData.lastName} onChange={e => setNewCustomerData({...newCustomerData, lastName: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
+                </div>
+                <input type="email" placeholder="Email" value={newCustomerData.email} onChange={e => setNewCustomerData({...newCustomerData, email: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
+                <input type="text" placeholder="Adresa" value={newCustomerData.address} onChange={e => setNewCustomerData({...newCustomerData, address: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
+                <div className="grid grid-cols-2 gap-4">
+                     <input type="tel" placeholder="Telefon" value={newCustomerData.phone} onChange={e => setNewCustomerData({...newCustomerData, phone: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
+                    <input type="text" placeholder="Číslo ŘP" value={newCustomerData.driverLicenseNumber} onChange={e => setNewCustomerData({...newCustomerData, driverLicenseNumber: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div className="max-w-4xl mx-auto">
             <h1 className="text-3xl font-bold text-gray-800 mb-6">Nová rezervace</h1>
@@ -291,28 +375,24 @@ const Reservations: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setC
                 {/* Customer Section */}
                 <section>
                     <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4 border-b pb-2"><UserPlus className="mr-3 text-primary"/>Krok 1: Zákazník</h2>
+                    
+                    <div className="flex items-center space-x-2 p-1 bg-gray-100 rounded-lg max-w-sm mb-4">
+                        <button type="button" onClick={() => { setCustomerType('person'); setIsNewCustomer(false); setSelectedCustomerId(''); }} className={`w-full py-2 px-4 rounded-md font-semibold text-sm transition-all ${customerType === 'person' ? 'bg-white shadow text-primary' : 'text-gray-600'}`}>Fyzická osoba</button>
+                        <button type="button" onClick={() => { setCustomerType('company'); setIsNewCustomer(false); setSelectedCustomerId(''); }} className={`w-full py-2 px-4 rounded-md font-semibold text-sm transition-all ${customerType === 'company' ? 'bg-white shadow text-primary' : 'text-gray-600'}`}>Firma</button>
+                    </div>
+
                     <div className="flex items-center space-x-4">
                         <select value={selectedCustomerId} onChange={(e) => { setSelectedCustomerId(e.target.value); setIsNewCustomer(false); }} className="w-full p-2 border rounded-md" disabled={isNewCustomer}>
-                            <option value="">Vyberte stávajícího zákazníka</option>
-                            {customers.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName} ({c.email})</option>)}
+                            <option value="">{customerType === 'person' ? 'Vyberte stávajícího zákazníka' : 'Vyberte stávající firmu'}</option>
+                            {customers.map(c => (
+                                <option key={c.id} value={c.id}>
+                                    {customerType === 'company' && c.companyName ? `${c.companyName} (${c.firstName} ${c.lastName})` : `${c.firstName} ${c.lastName} (${c.email})`}
+                                </option>
+                            ))}
                         </select>
-                         <button type="button" onClick={() => { setIsNewCustomer(!isNewCustomer); setSelectedCustomerId(''); }} className={`py-2 px-4 rounded-md font-semibold whitespace-nowrap ${isNewCustomer ? 'bg-primary text-white' : 'bg-gray-200'}`}>Nový zákazník</button>
+                         <button type="button" onClick={() => { setIsNewCustomer(!isNewCustomer); setSelectedCustomerId(''); }} className={`py-2 px-4 rounded-md font-semibold whitespace-nowrap ${isNewCustomer ? 'bg-primary text-white' : 'bg-gray-200'}`}>{customerType === 'person' ? 'Nový zákazník' : 'Nová firma'}</button>
                     </div>
-                    {isNewCustomer && (
-                         <div className="mt-4 space-y-3 p-4 bg-gray-50 rounded-md border">
-                            <h3 className="font-semibold text-gray-600">Údaje nového zákazníka</h3>
-                            <div className="grid grid-cols-2 gap-4">
-                                <input type="text" placeholder="Jméno" value={newCustomerData.firstName} onChange={e => setNewCustomerData({...newCustomerData, firstName: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                                <input type="text" placeholder="Příjmení" value={newCustomerData.lastName} onChange={e => setNewCustomerData({...newCustomerData, lastName: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                            </div>
-                            <input type="email" placeholder="Email" value={newCustomerData.email} onChange={e => setNewCustomerData({...newCustomerData, email: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                            <input type="text" placeholder="Adresa" value={newCustomerData.address} onChange={e => setNewCustomerData({...newCustomerData, address: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                            <div className="grid grid-cols-2 gap-4">
-                                 <input type="tel" placeholder="Telefon" value={newCustomerData.phone} onChange={e => setNewCustomerData({...newCustomerData, phone: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                                <input type="text" placeholder="Číslo ŘP" value={newCustomerData.driverLicenseNumber} onChange={e => setNewCustomerData({...newCustomerData, driverLicenseNumber: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                            </div>
-                        </div>
-                    )}
+                    {renderNewCustomerForm()}
                 </section>
                  {/* Date & Time Section */}
                 <section>
@@ -374,7 +454,7 @@ const Reservations: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setC
                      <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4 border-b pb-2"><Signature className="mr-3 text-primary"/>Krok 4: Podpis a dokončení</h2>
                      <div className="grid md:grid-cols-2 gap-8 items-start">
                          <div>
-                            <h3 className="font-semibold text-gray-600 mb-2">Podpis zákazníka</h3>
+                            <h3 className="font-semibold text-gray-600 mb-2">Podpis zákazníka / kontaktní osoby</h3>
                             <SignaturePad ref={signaturePadRef} />
                          </div>
                          <div className="bg-blue-50 p-4 rounded-lg">

@@ -1,9 +1,24 @@
+
 import React, { useEffect, useState, useMemo } from 'react';
-import { getInvoices } from '../services/api';
-import type { Invoice } from '../types';
+import { getInvoices, getCompanySettings } from '../services/api';
+import type { Invoice, CompanySettings } from '../types';
 import { Search, Printer, X, Loader } from 'lucide-react';
 
 const InvoiceDetailModal: React.FC<{ invoice: Invoice; onClose: () => void; }> = ({ invoice, onClose }) => {
+    const [settings, setSettings] = useState<CompanySettings | null>(null);
+
+    useEffect(() => {
+        const fetchSettings = async () => {
+            try {
+                const data = await getCompanySettings();
+                setSettings(data);
+            } catch (error) {
+                console.error("Failed to load company settings for invoice", error);
+            }
+        };
+        fetchSettings();
+    }, []);
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col" id="invoice-modal">
@@ -18,10 +33,15 @@ const InvoiceDetailModal: React.FC<{ invoice: Invoice; onClose: () => void; }> =
                     {/* Header */}
                     <div className="flex justify-between items-start pb-6 border-b">
                         <div>
-                            <h1 className="text-3xl font-bold text-primary">Van Rental Pro</h1>
-                            <p>Milan Gula</p>
-                            <p>Ghegova 17, Brno, 60200</p>
-                            <p>IČO: 07031653</p>
+                            {settings ? (
+                                <>
+                                    <h1 className="text-3xl font-bold text-primary">{settings.companyName || 'Van Rental Pro'}</h1>
+                                    <p>{settings.companyAddress}</p>
+                                    <p>IČO: {settings.companyIco}</p>
+                                </>
+                            ) : (
+                                <h1 className="text-3xl font-bold text-primary">Van Rental Pro</h1>
+                            )}
                         </div>
                         <div className="text-right">
                             <p className="text-gray-500">Datum vystavení: <span className="font-semibold text-gray-800">{new Date(invoice.issueDate).toLocaleDateString('cs-CZ')}</span></p>
@@ -89,8 +109,8 @@ const InvoiceDetailModal: React.FC<{ invoice: Invoice; onClose: () => void; }> =
                     {/* Footer */}
                     <div className="mt-12 pt-6 border-t text-sm text-gray-500 space-y-2">
                         <p className="font-semibold text-base text-gray-700">Forma úhrady: <span className="font-bold">{invoice.paymentMethod === 'cash' ? 'Hotově' : 'Převodem na účet'}</span></p>
-                        {invoice.paymentMethod === 'invoice' && (
-                            <p>Platbu proveďte na bankovní účet: <strong>2301430030/2010</strong></p>
+                        {invoice.paymentMethod === 'invoice' && settings?.bankAccount && (
+                            <p>Platbu proveďte na bankovní účet: <strong>{settings.bankAccount}</strong></p>
                         )}
                         <p className="mt-2">Děkujeme za využití našich služeb.</p>
                     </div>
