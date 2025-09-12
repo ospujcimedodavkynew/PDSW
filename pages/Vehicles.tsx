@@ -192,6 +192,7 @@ const VehicleFormModal: React.FC<{
         name: '', make: '', model: '', year: new Date().getFullYear(), licensePlate: '',
         status: 'available', rate4h: 0, rate12h: 0, dailyRate: 0, features: [],
         currentMileage: 0, description: '', dimensions: '',
+        nextOilServiceKm: undefined, nextTechnicalInspectionDate: undefined,
     };
     
     const [formData, setFormData] = useState<Partial<Vehicle>>(getInitialData(vehicle));
@@ -202,7 +203,12 @@ const VehicleFormModal: React.FC<{
 
     useEffect(() => {
         if (isOpen) {
-            setFormData(getInitialData(vehicle));
+            const initialData = getInitialData(vehicle);
+             // Format date for input type="date"
+            if (initialData.nextTechnicalInspectionDate) {
+                initialData.nextTechnicalInspectionDate = new Date(initialData.nextTechnicalInspectionDate).toISOString().split('T')[0];
+            }
+            setFormData(initialData);
             setError(null);
             setActiveTab('details');
         }
@@ -287,6 +293,15 @@ const VehicleFormModal: React.FC<{
                                     <input type="number" placeholder="Cena / den (24h+)" value={formData.dailyRate || 0} onChange={e => setFormData({ ...formData, dailyRate: parseInt(e.target.value) || 0 })} className="w-full p-2 border rounded" required />
                                 </div>
                             </div>
+                            
+                            <div className="pt-4 border-t mt-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Plánování údržby</label>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <input type="number" placeholder="Příští olej při (km)" value={formData.nextOilServiceKm || ''} onChange={e => setFormData({ ...formData, nextOilServiceKm: parseInt(e.target.value) || undefined })} className="w-full p-2 border rounded" />
+                                    <input type="date" value={formData.nextTechnicalInspectionDate as string || ''} onChange={e => setFormData({ ...formData, nextTechnicalInspectionDate: e.target.value || undefined })} className="w-full p-2 border rounded" />
+                                </div>
+                            </div>
+
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Popis vozidla</label>
                                 <textarea placeholder="Krátký popis pro zákazníky..." value={formData.description || ''} onChange={e => setFormData({ ...formData, description: e.target.value })} className="w-full p-2 border rounded h-24" />
@@ -357,6 +372,7 @@ const Vehicles: React.FC = () => {
         setIsModalOpen(false);
         setSelectedVehicle(null);
     };
+
 
     const handleSave = () => {
         handleCloseModal();

@@ -28,6 +28,9 @@ export interface Vehicle {
     description: string;
     dimensions: string;
     imageUrl: string;
+    // New fields for proactive maintenance
+    nextOilServiceKm?: number;
+    nextTechnicalInspectionDate?: Date | string;
 }
 
 export interface ServiceRecord {

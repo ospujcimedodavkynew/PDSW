@@ -18,7 +18,9 @@ const toVehicle = (data: any): Vehicle => ({
     licensePlate: data.license_plate, status: data.status, imageUrl: data.image_url,
     rate4h: data.rate4h, rate12h: data.rate12h, dailyRate: data.daily_rate,
     features: data.features || [], currentMileage: data.current_mileage,
-    description: data.description, dimensions: data.dimensions
+    description: data.description, dimensions: data.dimensions,
+    nextOilServiceKm: data.next_oil_service_km,
+    nextTechnicalInspectionDate: data.next_technical_inspection_date,
 });
 
 const toCustomer = (data: any): Customer => ({
@@ -172,8 +174,8 @@ export const onAuthStateChanged = (callback: (user: User | null) => void): (() =
 
 // --- VEHICLES, SERVICE & DAMAGE RECORDS ---
 export const getVehicles = async (): Promise<Vehicle[]> => { const { data, error } = await supabase.from('vehicles').select('*').order('name', { ascending: true }); if (error) throw error; return data.map(toVehicle); };
-export const addVehicle = async (vehicle: Omit<Vehicle, 'id' | 'imageUrl'>): Promise<Vehicle> => { const { data, error } = await supabase.from('vehicles').insert({ name: vehicle.name, make: vehicle.make, model: vehicle.model, year: vehicle.year, license_plate: vehicle.licensePlate, status: vehicle.status, rate4h: vehicle.rate4h, rate12h: vehicle.rate12h, daily_rate: vehicle.dailyRate, features: vehicle.features, current_mileage: vehicle.currentMileage, description: vehicle.description, dimensions: vehicle.dimensions }).select().single(); if (error) throw error; return toVehicle(data); };
-export const updateVehicle = async (vehicle: Vehicle): Promise<Vehicle> => { const { data, error } = await supabase.from('vehicles').update({ name: vehicle.name, make: vehicle.make, model: vehicle.model, year: vehicle.year, license_plate: vehicle.licensePlate, status: vehicle.status, rate4h: vehicle.rate4h, rate12h: vehicle.rate12h, daily_rate: vehicle.dailyRate, features: vehicle.features, current_mileage: vehicle.currentMileage, description: vehicle.description, dimensions: vehicle.dimensions, image_url: vehicle.imageUrl }).eq('id', vehicle.id).select().single(); if (error) throw error; return toVehicle(data); };
+export const addVehicle = async (vehicle: Omit<Vehicle, 'id' | 'imageUrl'>): Promise<Vehicle> => { const { data, error } = await supabase.from('vehicles').insert({ name: vehicle.name, make: vehicle.make, model: vehicle.model, year: vehicle.year, license_plate: vehicle.licensePlate, status: vehicle.status, rate4h: vehicle.rate4h, rate12h: vehicle.rate12h, daily_rate: vehicle.dailyRate, features: vehicle.features, current_mileage: vehicle.currentMileage, description: vehicle.description, dimensions: vehicle.dimensions, next_oil_service_km: vehicle.nextOilServiceKm, next_technical_inspection_date: vehicle.nextTechnicalInspectionDate }).select().single(); if (error) throw error; return toVehicle(data); };
+export const updateVehicle = async (vehicle: Vehicle): Promise<Vehicle> => { const { data, error } = await supabase.from('vehicles').update({ name: vehicle.name, make: vehicle.make, model: vehicle.model, year: vehicle.year, license_plate: vehicle.licensePlate, status: vehicle.status, rate4h: vehicle.rate4h, rate12h: vehicle.rate12h, daily_rate: vehicle.dailyRate, features: vehicle.features, current_mileage: vehicle.currentMileage, description: vehicle.description, dimensions: vehicle.dimensions, image_url: vehicle.imageUrl, next_oil_service_km: vehicle.nextOilServiceKm, next_technical_inspection_date: vehicle.nextTechnicalInspectionDate }).eq('id', vehicle.id).select().single(); if (error) throw error; return toVehicle(data); };
 export const getServiceRecordsForVehicle = async (vehicleId: string): Promise<ServiceRecord[]> => { const { data, error } = await supabase.from('service_records').select('*').eq('vehicle_id', vehicleId).order('service_date', { ascending: false }); if (error) throw error; return data.map(d => ({...d, vehicleId: d.vehicle_id, serviceDate: d.service_date})); };
 export const addServiceRecord = async (record: Omit<ServiceRecord, 'id'>, vehicleName: string): Promise<ServiceRecord> => { const { data, error } = await supabase.from('service_records').insert({ vehicle_id: record.vehicleId, description: record.description, cost: record.cost, mileage: record.mileage, service_date: record.serviceDate }).select().single(); if (error) throw error; await addExpense({ description: `Servis: ${vehicleName} - ${record.description}`, amount: record.cost, date: record.serviceDate, }); return {...data, vehicleId: data.vehicle_id, serviceDate: data.service_date}; };
 export const deleteServiceRecord = async (recordId: string): Promise<void> => { const { error } = await supabase.from('service_records').delete().eq('id', recordId); if (error) throw error; };
@@ -245,7 +247,33 @@ export const getInvoices = async (): Promise<Invoice[]> => { const { data, error
 export const createInvoice = async (invoiceData: Omit<Invoice, 'id' | 'invoiceNumber' | 'issueDate' | 'dueDate'>): Promise<Invoice> => { const { count, error: countError } = await supabase.from('invoices').select('*', { count: 'exact', head: true }); if (countError) throw countError; const invoiceNumber = `FAKT-${new Date().getFullYear()}-${(count || 0) + 1}`; const issueDate = new Date(); let dueDate = new Date(); if (invoiceData.paymentMethod === 'cash') { dueDate = issueDate; } else { dueDate.setDate(issueDate.getDate() + 14); } const { data, error } = await supabase.from('invoices').insert({ invoice_number: invoiceNumber, reservation_id: invoiceData.reservationId, issue_date: issueDate.toISOString(), due_date: dueDate.toISOString(), total_amount: invoiceData.totalAmount, line_items: invoiceData.lineItems, customer_details_snapshot: invoiceData.customerDetailsSnapshot, vehicle_details_snapshot: invoiceData.vehicleDetailsSnapshot, payment_method: invoiceData.paymentMethod }).select().single(); if (error) throw error; return toInvoice(data); };
 
 // --- DASHBOARD & REPORTS ---
-export const getDashboardStats = async () => { const { data: vehicles, error: vError } = await supabase.from('vehicles').select('*'); if (vError) throw vError; const { count: totalCustomers, error: cError } = await supabase.from('customers').select('*', { count: 'exact', head: true }); if (cError) throw cError; const { data: reservations, error: rError } = await supabase.from('reservations').select('*, customers:customer_id(*), vehicles:vehicle_id(*)'); if (rError) throw rError; const now = new Date(); const todayStart = new Date(now.setHours(0, 0, 0, 0)); const todayEnd = new Date(now.setHours(23, 59, 59, 999)); return { stats: { availableVehicles: vehicles.filter(v => v.status === 'available').length, totalVehicles: vehicles.length }, upcomingReservations: reservations.filter(r => r.status === 'scheduled').length, dueBack: reservations.filter(r => new Date(r.end_date) <= todayEnd && r.status === 'active').length, totalCustomers: totalCustomers || 0, todaysDepartures: reservations.filter(r => r.status === 'scheduled' && new Date(r.start_date) >= todayStart && new Date(r.start_date) <= todayEnd).map(toReservation), todaysArrivals: reservations.filter(r => r.status === 'active' && new Date(r.end_date) >= todayStart && new Date(r.end_date) <= todayEnd).map(toReservation), }; };
+export const getDashboardStats = async () => { 
+    const { data: vehicles, error: vError } = await supabase.from('vehicles').select('*'); 
+    if (vError) throw vError; 
+    
+    const { count: totalCustomers, error: cError } = await supabase.from('customers').select('*', { count: 'exact', head: true }); 
+    if (cError) throw cError; 
+    
+    const { data: reservations, error: rError } = await supabase.from('reservations').select('*, customers:customer_id(*), vehicles:vehicle_id(*)'); 
+    if (rError) throw rError; 
+    
+    const now = new Date();
+    const todayStart = new Date(now.setHours(0, 0, 0, 0));
+    const todayEnd = new Date(now.setHours(23, 59, 59, 999));
+    
+    return { 
+        vehicles: vehicles.map(toVehicle), // Return all vehicles for maintenance check
+        stats: { 
+            availableVehicles: vehicles.filter(v => v.status === 'available').length, 
+            totalVehicles: vehicles.length 
+        },
+        upcomingReservations: reservations.filter(r => r.status === 'scheduled').length, 
+        dueBack: reservations.filter(r => new Date(r.end_date) <= todayEnd && r.status === 'active').length, 
+        totalCustomers: totalCustomers || 0, 
+        todaysDepartures: reservations.filter(r => r.status === 'scheduled' && new Date(r.start_date) >= todayStart && new Date(r.start_date) <= todayEnd).map(toReservation), 
+        todaysArrivals: reservations.filter(r => r.status === 'active' && new Date(r.end_date) >= todayStart && new Date(r.end_date) <= todayEnd).map(toReservation), 
+    }; 
+};
 export const getReportsData = async () => { return {}; };
 
 // --- COMPANY SETTINGS ---

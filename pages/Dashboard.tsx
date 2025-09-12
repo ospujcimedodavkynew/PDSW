@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { getDashboardStats, onTableChange } from '../services/api';
-import { Car, Users, Calendar, AlertTriangle, LogIn, LogOut, PlusCircle, Phone } from 'lucide-react';
-import { Page, Reservation } from '../types';
+import { Car, Users, Calendar, AlertTriangle, LogIn, LogOut, PlusCircle, Phone, Wrench } from 'lucide-react';
+import { Page, Reservation, Vehicle } from '../types';
 import SelfServiceModal from '../components/SelfServiceModal';
 import { getVehicles } from '../services/api';
 import ReservationDetailModal from '../components/ReservationDetailModal';
@@ -10,11 +10,84 @@ interface DashboardProps {
     setCurrentPage: (page: Page) => void;
 }
 
+const MaintenanceAlerts: React.FC<{ vehicles: Vehicle[] }> = ({ vehicles }) => {
+    const alerts = useMemo(() => {
+        const oilChangeThreshold = 1000; // Upozornit 1000 km předem
+        const inspectionThresholdDays = 30; // Upozornit 30 dní předem
+
+        const now = new Date();
+        const inspectionTresholdDate = new Date();
+        inspectionTresholdDate.setDate(now.getDate() + inspectionThresholdDays);
+        
+        return vehicles.map(v => {
+            const oilAlert = v.nextOilServiceKm && (v.nextOilServiceKm - v.currentMileage) <= oilChangeThreshold;
+            const inspectionDate = v.nextTechnicalInspectionDate ? new Date(v.nextTechnicalInspectionDate) : null;
+            const inspectionAlert = inspectionDate && inspectionDate <= inspectionTresholdDate;
+
+            if (!oilAlert && !inspectionAlert) return null;
+
+            let message = '';
+            let isUrgent = false;
+
+            if (oilAlert) {
+                const kmRemaining = v.nextOilServiceKm! - v.currentMileage;
+                if (kmRemaining <= 0) {
+                    message = `Výměna oleje po limitu! (${Math.abs(kmRemaining).toLocaleString('cs-CZ')} km)`;
+                    isUrgent = true;
+                } else {
+                    message = `Výměna oleje za ${kmRemaining.toLocaleString('cs-CZ')} km`;
+                }
+            }
+
+            if (inspectionAlert) {
+                const daysRemaining = Math.ceil((inspectionDate!.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                 if (daysRemaining <= 0) {
+                    message = `${message ? message + ' / ' : ''}STK po termínu!`;
+                    isUrgent = true;
+                } else {
+                    message = `${message ? message + ' / ' : ''}STK za ${daysRemaining} dní`;
+                }
+            }
+
+            return { vehicle: v, message, isUrgent };
+        }).filter(Boolean) as { vehicle: Vehicle; message: string; isUrgent: boolean }[];
+    }, [vehicles]);
+
+    if (alerts.length === 0) {
+        return (
+             <div className="bg-white p-6 rounded-lg shadow-md">
+                <h2 className="text-xl font-bold text-gray-700 mb-4 flex items-center"><Wrench className="mr-2"/>Nadcházející údržba</h2>
+                <div className="text-center py-8">
+                    <p className="text-gray-500">Všechna vozidla jsou v pořádku a nevyžadují okamžitou údržbu.</p>
+                </div>
+            </div>
+        );
+    }
+    
+    return (
+        <div className="bg-white p-6 rounded-lg shadow-md">
+             <h2 className="text-xl font-bold text-gray-700 mb-4 flex items-center"><Wrench className="mr-2"/>Nadcházející údržba</h2>
+            <div className="space-y-3">
+            {alerts.map(({ vehicle, message, isUrgent }) => (
+                <div key={vehicle.id} className={`p-3 rounded-md flex items-center ${isUrgent ? 'bg-red-50 border-l-4 border-red-500' : 'bg-yellow-50 border-l-4 border-yellow-500'}`}>
+                    <AlertTriangle className={`w-6 h-6 mr-4 ${isUrgent ? 'text-red-600' : 'text-yellow-600'}`} />
+                    <div>
+                        <p className="font-bold">{vehicle.name} <span className="font-normal text-gray-500">({vehicle.licensePlate})</span></p>
+                        <p className="text-sm">{message}</p>
+                    </div>
+                </div>
+            ))}
+            </div>
+        </div>
+    );
+};
+
+
 const Dashboard: React.FC<DashboardProps> = ({ setCurrentPage }) => {
     const [stats, setStats] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [isSsmOpen, setIsSsmOpen] = useState(false);
-    const [availableVehicles, setAvailableVehicles] = useState([]);
+    const [availableVehiclesSsm, setAvailableVehiclesSsm] = useState<Vehicle[]>([]);
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
 
@@ -45,7 +118,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentPage }) => {
     const handleOpenSsm = async () => {
         try {
             const vehicles = await getVehicles();
-            setAvailableVehicles(vehicles.filter(v => v.status === 'available') as any);
+            setAvailableVehiclesSsm(vehicles.filter(v => v.status === 'available'));
             setIsSsmOpen(true);
         } catch (error) {
             alert('Nepodařilo se načíst dostupná vozidla.');
@@ -71,7 +144,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentPage }) => {
             <SelfServiceModal 
                 isOpen={isSsmOpen}
                 onClose={() => setIsSsmOpen(false)}
-                availableVehicles={availableVehicles}
+                availableVehicles={availableVehiclesSsm}
                 onLinkGenerated={() => {
                     // Optional: show a success message
                 }}
@@ -202,6 +275,8 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentPage }) => {
                     )}
                 </div>
             </div>
+
+            {stats.vehicles && <MaintenanceAlerts vehicles={stats.vehicles} />}
         </div>
     );
 };
