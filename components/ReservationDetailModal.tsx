@@ -1,20 +1,133 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { X, FileText, Gauge } from 'lucide-react';
-import { Reservation } from '../types';
-import { activateReservation, completeReservation } from '../services/api';
+import React, { useState, useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
+import { X, FileText, Gauge, Car, Camera, Plus, Trash2, Loader, Image as ImageIcon } from 'lucide-react';
+import { Reservation, DamageRecord } from '../types';
+import { activateReservation, completeReservation, getDamageRecordsForVehicle, addDamageRecord } from '../services/api';
 
-interface ReservationDetailModalProps {
-    isOpen: boolean;
-    onClose: () => void;
-    reservation: Reservation | null;
-}
+// Reusable SignaturePad Component
+interface SignaturePadHandles { getSignature: () => string; clear: () => void; isEmpty: () => boolean; }
+const SignaturePad = forwardRef<SignaturePadHandles>((props, ref) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const [isDrawing, setIsDrawing] = useState(false);
+    const [isEmpty, setIsEmpty] = useState(true);
+    const getContext = () => canvasRef.current?.getContext('2d');
+    useEffect(() => { const canvas = canvasRef.current; if (canvas) { const ctx = getContext(); if (ctx) { ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.lineCap = 'round'; } } }, []);
+    const getCoords = (e: React.MouseEvent | React.TouchEvent): { x: number, y: number } => {
+        const canvas = canvasRef.current; if (!canvas) return { x: 0, y: 0 }; const rect = canvas.getBoundingClientRect();
+        if ('touches' in e.nativeEvent) { return { x: e.nativeEvent.touches[0].clientX - rect.left, y: e.nativeEvent.touches[0].clientY - rect.top }; }
+        return { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY };
+    }
+    const startDrawing = (e: React.MouseEvent | React.TouchEvent) => { const ctx = getContext(); if (ctx) { const { x, y } = getCoords(e); ctx.beginPath(); ctx.moveTo(x, y); setIsDrawing(true); setIsEmpty(false); } };
+    const draw = (e: React.MouseEvent | React.TouchEvent) => { if (!isDrawing) return; const ctx = getContext(); if (ctx) { const { x, y } = getCoords(e); ctx.lineTo(x, y); ctx.stroke(); } };
+    const stopDrawing = () => { const ctx = getContext(); if (ctx) { ctx.closePath(); setIsDrawing(false); } };
+    const clear = () => { const ctx = getContext(); const canvas = canvasRef.current; if (ctx && canvas) { ctx.clearRect(0, 0, canvas.width, canvas.height); setIsEmpty(true); } };
+    useImperativeHandle(ref, () => ({ getSignature: () => { if (isEmpty || !canvasRef.current) return ''; return canvasRef.current.toDataURL('image/png'); }, clear, isEmpty: () => isEmpty, }));
+    return (<div><canvas ref={canvasRef} className="w-full h-32 border border-gray-300 rounded-md bg-white cursor-crosshair" onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing} onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing} /><button type="button" onClick={clear} className="text-sm mt-1 text-primary hover:underline">Vymazat</button></div>);
+});
 
-const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({ isOpen, onClose, reservation }) => {
+
+// Vehicle Condition Component
+const VehicleCondition: React.FC<{ reservation: Reservation; onNewDamage: (record: DamageRecord) => void; damageRecords: DamageRecord[] }> = ({ reservation, onNewDamage, damageRecords }) => {
+    const [showDamageModal, setShowDamageModal] = useState(false);
+    const [newDamageCoords, setNewDamageCoords] = useState<{ x: number; y: number } | null>(null);
+    const [newDamageDesc, setNewDamageDesc] = useState('');
+    const [newDamagePhoto, setNewDamagePhoto] = useState<File | null>(null);
+    const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+    const [isAddingDamage, setIsAddingDamage] = useState(false);
+
+    const handleDiagramClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * 100;
+        const y = ((e.clientY - rect.top) / rect.height) * 100;
+        setNewDamageCoords({ x, y });
+        setShowDamageModal(true);
+    };
+
+    const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            const file = e.target.files[0];
+            setNewDamagePhoto(file);
+            setPhotoPreview(URL.createObjectURL(file));
+        }
+    };
+
+    const handleSaveDamage = async () => {
+        if (!newDamageDesc || !newDamageCoords || !reservation) return;
+        setIsAddingDamage(true);
+        try {
+            const record = await addDamageRecord({
+                vehicleId: reservation.vehicleId,
+                reservationId: reservation.id,
+                description: newDamageDesc,
+                locationX: newDamageCoords.x,
+                locationY: newDamageCoords.y,
+            }, newDamagePhoto);
+            onNewDamage(record);
+            closeDamageModal();
+        } catch (error) {
+            alert('Nepodařilo se uložit záznam o poškození.');
+        } finally {
+            setIsAddingDamage(false);
+        }
+    };
+    
+    const closeDamageModal = () => {
+        setShowDamageModal(false);
+        setNewDamageCoords(null);
+        setNewDamageDesc('');
+        setNewDamagePhoto(null);
+        setPhotoPreview(null);
+    };
+
+    return (
+        <div className="mt-4">
+            <h3 className="font-semibold text-gray-500 mb-2">Stav vozidla a evidence poškození</h3>
+            <div onClick={handleDiagramClick} className="relative w-full max-w-md mx-auto aspect-[4/3] bg-gray-100 rounded border-2 border-dashed cursor-crosshair flex items-center justify-center">
+                <Car size={100} className="text-gray-300" />
+                <p className="absolute text-gray-400 font-semibold">Klikněte pro označení poškození</p>
+                {damageRecords.map(d => (
+                    <div key={d.id} className="absolute w-4 h-4 bg-red-500 rounded-full border-2 border-white transform -translate-x-1/2 -translate-y-1/2 group" style={{ left: `${d.locationX}%`, top: `${d.locationY}%` }}>
+                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 bg-black text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                            <p className="font-bold">{d.description}</p>
+                            {d.photoUrl && <img src={d.photoUrl} alt="Poškození" className="mt-1 rounded"/>}
+                            <small>Zaznamenáno: {new Date(d.reportedAt).toLocaleDateString()}</small>
+                        </div>
+                    </div>
+                ))}
+            </div>
+            {/* Modal for adding new damage */}
+            {showDamageModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
+                    <div className="bg-white rounded-lg p-6 w-full max-w-sm">
+                        <h3 className="font-bold text-lg mb-4">Přidat záznam o poškození</h3>
+                        <textarea value={newDamageDesc} onChange={e => setNewDamageDesc(e.target.value)} placeholder="Popis (např. škrábanec 5cm)" className="w-full p-2 border rounded h-20 mb-3" />
+                        <label htmlFor="damage-photo" className="w-full p-3 border-2 border-dashed rounded-md flex items-center justify-center cursor-pointer hover:bg-gray-50">
+                            {photoPreview ? <img src={photoPreview} className="h-16 object-contain"/> : <><Camera className="w-5 h-5 mr-2" /> Přidat fotku</>}
+                        </label>
+                        <input id="damage-photo" type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+                        <div className="flex justify-end space-x-2 mt-4">
+                            <button onClick={closeDamageModal} className="py-2 px-4 rounded bg-gray-200">Zrušit</button>
+                            <button onClick={handleSaveDamage} disabled={isAddingDamage} className="py-2 px-4 rounded bg-primary text-white disabled:bg-gray-400">
+                                {isAddingDamage ? 'Ukládám...' : 'Uložit'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+
+// Main Modal Component
+const ReservationDetailModal: React.FC<{ isOpen: boolean; onClose: () => void; reservation: Reservation | null; }> = ({ isOpen, onClose, reservation }) => {
     const [notes, setNotes] = useState('');
     const [startMileage, setStartMileage] = useState<string>('');
     const [endMileage, setEndMileage] = useState<string>('');
     const [paymentMethod, setPaymentMethod] = useState<'cash' | 'invoice'>('cash');
     const [isProcessing, setIsProcessing] = useState(false);
+    const signaturePadRef = useRef<SignaturePadHandles>(null);
+    const [activeTab, setActiveTab] = useState<'protocol' | 'condition'>('protocol');
+    const [damageRecords, setDamageRecords] = useState<DamageRecord[]>([]);
 
     useEffect(() => {
         if (isOpen && reservation) {
@@ -22,77 +135,56 @@ const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({ isOpen,
             setEndMileage(reservation.status === 'active' ? String(reservation.vehicle?.currentMileage ?? '') : String(reservation.endMileage ?? ''));
             setNotes(reservation.notes || '');
             setPaymentMethod(reservation.paymentMethod || 'cash');
+            signaturePadRef.current?.clear();
+            setActiveTab('protocol');
+
+            const fetchDamage = async () => {
+                if(reservation.vehicleId) {
+                    const records = await getDamageRecordsForVehicle(reservation.vehicleId);
+                    setDamageRecords(records);
+                }
+            };
+            fetchDamage();
         }
     }, [isOpen, reservation]);
 
     const isArrival = reservation?.status === 'active';
     const isDeparture = reservation?.status === 'scheduled';
-
+    
     const calculations = useMemo(() => {
-        if (!isArrival || !reservation) {
-            return { kmDriven: 0, rentalDays: 0, kmLimit: 0, kmOver: 0, extraCharge: 0 };
-        }
-        
-        const startKm = reservation.startMileage || 0;
+        if (!isArrival || !reservation) return { extraCharge: 0 };
         const endKm = Number(endMileage) || 0;
-        const kmDriven = endKm > startKm ? endKm - startKm : 0;
-
+        const kmDriven = endKm > (reservation.startMileage || 0) ? endKm - (reservation.startMileage || 0) : 0;
         const durationMs = new Date(reservation.endDate).getTime() - new Date(reservation.startDate).getTime();
         const rentalDays = Math.max(1, Math.ceil(durationMs / (1000 * 60 * 60 * 24)));
         const kmLimit = rentalDays * 300;
         const kmOver = Math.max(0, kmDriven - kmLimit);
-        const extraCharge = kmOver * 3;
-
-        return { kmDriven, rentalDays, kmLimit, kmOver, extraCharge };
+        return { extraCharge: kmOver * 3 };
     }, [reservation, endMileage, isArrival]);
 
-    if (!isOpen) return null;
-
-    if (!reservation) {
-        return (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-                <div className="bg-white rounded-lg p-8">Načítání detailu rezervace...</div>
-            </div>
-        );
-    }
-    
+    if (!isOpen || !reservation) return null;
     if (!reservation.customer || !reservation.vehicle) {
-        return (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-                <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-lg text-center">
-                    <h2 className="text-2xl font-bold text-red-600 mb-4">Chyba dat</h2>
-                    <p className="text-gray-700 mb-6">
-                        Informace o této rezervaci jsou neúplné (chybí záznam o zákazníkovi nebo vozidle). Zkontrolujte prosím data v databázi pro rezervaci ID: <code className="text-sm bg-red-100 p-1 rounded">{reservation.id}</code>
-                    </p>
-                    <button onClick={onClose} className="py-2 px-6 rounded-lg bg-gray-300 hover:bg-gray-400">
-                        Zavřít
-                    </button>
-                </div>
-            </div>
-        );
+        return <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50"><div className="bg-white rounded-lg p-8">Chyba: Neúplná data rezervace.</div></div>;
     }
 
     const handleAction = async () => {
+        if (signaturePadRef.current?.isEmpty()) {
+            alert('Protokol musí být podepsán zákazníkem.'); return;
+        }
+        
         setIsProcessing(true);
         try {
+            const signature = signaturePadRef.current.getSignature();
             if (isDeparture) {
                 if (!startMileage || Number(startMileage) < (reservation.vehicle?.currentMileage ?? 0)) {
-                    alert('Zadejte platný stav tachometru (nesmí být menší než aktuální stav vozidla).');
-                    setIsProcessing(false);
-                    return;
+                    alert('Zadejte platný stav tachometru.'); setIsProcessing(false); return;
                 }
-                await activateReservation(reservation.id, Number(startMileage));
+                await activateReservation(reservation.id, Number(startMileage), signature);
             } else if (isArrival) {
                  if (!endMileage || Number(endMileage) <= (reservation.startMileage ?? 0)) {
-                    alert('Konečný stav tachometru musí být větší než počáteční.');
-                    setIsProcessing(false);
-                    return;
+                    alert('Konečný stav tachometru musí být větší než počáteční.'); setIsProcessing(false); return;
                 }
-                const { kmDriven, kmLimit, kmOver, extraCharge } = calculations;
-                const mileageReport = `--- PŘEHLED KILOMETRŮ ---\n...`; // Shortened for brevity
-                const finalNotes = notes ? `${notes}\n\n${mileageReport}` : mileageReport;
-
-                await completeReservation(reservation.id, Number(endMileage), finalNotes, paymentMethod);
+                await completeReservation(reservation.id, Number(endMileage), notes, paymentMethod, signature);
             }
             onClose();
         } catch (error) {
@@ -104,96 +196,54 @@ const ReservationDetailModal: React.FC<ReservationDetailModalProps> = ({ isOpen,
     };
     
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-            <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-lg">
-                <div className="flex justify-between items-center mb-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[95vh] flex flex-col">
+                <div className="p-6 flex justify-between items-center border-b">
                     <h2 className="text-2xl font-bold">
-                        {isDeparture && 'Potvrzení o vydání vozidla'}
-                        {isArrival && 'Protokol o vrácení vozidla'}
-                        {!isDeparture && !isArrival && 'Detail rezervace'}
+                        {isDeparture && 'Předávací Protokol'}
+                        {isArrival && 'Protokol o Vrácení'}
+                        {!isDeparture && !isArrival && 'Detail Rezervace'}
                     </h2>
                     <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-200"><X /></button>
                 </div>
-                <div className="space-y-4">
-                    <div>
-                        <h3 className="font-semibold text-gray-500">Zákazník</h3>
-                        <p className="text-lg">{reservation.customer.firstName} {reservation.customer.lastName}</p>
-                         {reservation.customer.driverLicenseImageUrl && (
-                             <a href={reservation.customer.driverLicenseImageUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline flex items-center mt-1">
-                                <FileText className="w-4 h-4 mr-1"/> Zobrazit řidičský průkaz
-                            </a>
-                        )}
-                    </div>
-                     <div>
-                        <h3 className="font-semibold text-gray-500">Vozidlo</h3>
-                        <p className="text-lg">{reservation.vehicle.name} ({reservation.vehicle.licensePlate})</p>
-                    </div>
-                     <div>
-                        <h3 className="font-semibold text-gray-500">Období</h3>
-                        <p className="text-lg">
-                            {new Date(reservation.startDate).toLocaleString('cs-CZ')} - {new Date(reservation.endDate).toLocaleString('cs-CZ')}
-                        </p>
-                    </div>
 
-                     {isDeparture && (
-                         <div>
-                            <label htmlFor="startMileage" className="font-semibold text-gray-500 flex items-center"><Gauge className="w-4 h-4 mr-2" />Počáteční stav tachometru</label>
-                            <input
-                                id="startMileage" type="number" value={startMileage} onChange={(e) => setStartMileage(e.target.value)}
-                                className="w-full mt-1 p-2 border rounded-md" placeholder="Zadejte stav km" required
-                            />
-                        </div>
-                    )}
-                    
-                    {isArrival && (
-                        <div className="space-y-4">
-                            <div>
-                                <h3 className="font-semibold text-gray-500">Stav tachometru</h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="bg-gray-100 p-2 rounded">
-                                        <label className="text-xs text-gray-600">Při odjezdu</label>
-                                        <p className="font-bold">{reservation.startMileage?.toLocaleString('cs-CZ') ?? 'N/A'} km</p>
-                                    </div>
-                                    <div>
-                                        <label htmlFor="endMileage" className="text-xs text-gray-600">Při návratu</label>
-                                         <input id="endMileage" type="number" value={endMileage} onChange={(e) => setEndMileage(e.target.value)} className="w-full p-2 border rounded-md" required/>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {Number(endMileage) > (reservation.startMileage ?? 0) && (
-                                <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg space-y-2">
-                                    <h4 className="font-semibold text-blue-800">Vyúčtování kilometrů</h4>
-                                    <p className="flex justify-between"><span>Ujeto celkem:</span> <span className="font-bold">{calculations.kmDriven.toLocaleString('cs-CZ')} km</span></p>
-                                    <p className="flex justify-between"><span>Limit nájezdu:</span> <span className="font-bold">{calculations.kmLimit.toLocaleString('cs-CZ')} km</span></p>
-                                    {calculations.kmOver > 0 && <p className="flex justify-between text-red-600"><span>Poplatek (3 Kč/km):</span> <span className="font-bold">{calculations.extraCharge.toLocaleString('cs-CZ')} Kč</span></p>}
+                <div className="border-b border-gray-200">
+                    <nav className="-mb-px flex space-x-6 px-6">
+                        <button onClick={() => setActiveTab('protocol')} className={`py-3 px-1 border-b-2 font-medium text-sm ${activeTab === 'protocol' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Protokol</button>
+                        <button onClick={() => setActiveTab('condition')} className={`py-3 px-1 border-b-2 font-medium text-sm ${activeTab === 'condition' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Stav Vozidla</button>
+                    </nav>
+                </div>
+                
+                <div className="p-6 overflow-y-auto space-y-4">
+                    {activeTab === 'protocol' && (
+                        <>
+                           <div><h3 className="font-semibold text-gray-500">Zákazník</h3><p className="text-lg">{reservation.customer.firstName} {reservation.customer.lastName}</p></div>
+                           <div><h3 className="font-semibold text-gray-500">Vozidlo</h3><p className="text-lg">{reservation.vehicle.name} ({reservation.vehicle.licensePlate})</p></div>
+                           {isDeparture && (<div><label htmlFor="startMileage" className="font-semibold text-gray-500 flex items-center"><Gauge className="w-4 h-4 mr-2" />Stav tachometru při vydání</label><input id="startMileage" type="number" value={startMileage} onChange={(e) => setStartMileage(e.target.value)} className="w-full mt-1 p-2 border rounded-md" required /></div>)}
+                           {isArrival && (
+                                <div className="space-y-4">
+                                    <div><h3 className="font-semibold text-gray-500">Stav tachometru</h3><div className="grid grid-cols-2 gap-4"><div className="bg-gray-100 p-2 rounded"><label className="text-xs text-gray-600">Při odjezdu</label><p className="font-bold">{reservation.startMileage?.toLocaleString('cs-CZ') ?? 'N/A'} km</p></div><div><label htmlFor="endMileage" className="text-xs text-gray-600">Při návratu</label><input id="endMileage" type="number" value={endMileage} onChange={(e) => setEndMileage(e.target.value)} className="w-full p-2 border rounded-md" required/></div></div></div>
+                                    {calculations.extraCharge > 0 && <div className="bg-blue-50 p-3 rounded-lg"><p className="flex justify-between text-red-600"><span>Poplatek za km navíc:</span> <span className="font-bold">{calculations.extraCharge.toLocaleString('cs-CZ')} Kč</span></p></div>}
+                                    <div><label htmlFor="notes" className="font-semibold text-gray-500">Poznámky</label><textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full mt-1 p-2 border rounded-md h-20" placeholder="Stav nádrže, nové poškození..."/></div>
+                                    <div><label className="font-semibold text-gray-500">Způsob platby</label><div className="mt-2 flex space-x-4"><label className="flex items-center"><input type="radio" name="paymentMethod" value="cash" checked={paymentMethod === 'cash'} onChange={() => setPaymentMethod('cash')} className="h-4 w-4 text-primary" /><span className="ml-2">Hotově</span></label><label className="flex items-center"><input type="radio" name="paymentMethod" value="invoice" checked={paymentMethod === 'invoice'} onChange={() => setPaymentMethod('invoice')} className="h-4 w-4 text-primary" /><span className="ml-2">Fakturace</span></label></div></div>
                                 </div>
                             )}
-                             <div>
-                                <label htmlFor="notes" className="font-semibold text-gray-500">Poznámky ke stavu vozidla</label>
-                                <textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full mt-1 p-2 border rounded-md h-24" placeholder="Např. stav nádrže, nové poškození..."/>
-                            </div>
-                            <div>
-                                <label className="font-semibold text-gray-500">Způsob platby</label>
-                                <div className="mt-2 flex space-x-4">
-                                    <label className="flex items-center">
-                                        <input type="radio" name="paymentMethod" value="cash" checked={paymentMethod === 'cash'} onChange={() => setPaymentMethod('cash')} className="h-4 w-4 text-primary focus:ring-primary border-gray-300" />
-                                        <span className="ml-2">Zaplaceno hotově</span>
-                                    </label>
-                                    <label className="flex items-center">
-                                        <input type="radio" name="paymentMethod" value="invoice" checked={paymentMethod === 'invoice'} onChange={() => setPaymentMethod('invoice')} className="h-4 w-4 text-primary focus:ring-primary border-gray-300" />
-                                        <span className="ml-2">Fakturace na účet</span>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
+                            {(isDeparture || isArrival) && <div><label className="font-semibold text-gray-500 mb-2 block">Podpis zákazníka</label><SignaturePad ref={signaturePadRef} /></div>}
+                        </>
+                    )}
+                    {activeTab === 'condition' && (
+                        <VehicleCondition 
+                            reservation={reservation} 
+                            damageRecords={damageRecords}
+                            onNewDamage={(newRecord) => setDamageRecords(prev => [newRecord, ...prev])}
+                        />
                     )}
                 </div>
-                <div className="mt-6 flex justify-end space-x-3">
+                <div className="p-6 mt-auto border-t flex justify-end space-x-3">
                     <button onClick={onClose} className="py-2 px-4 rounded-lg bg-gray-200 hover:bg-gray-300">Zrušit</button>
                     {(isDeparture || isArrival) && (
-                         <button onClick={handleAction} disabled={isProcessing} className={`py-2 px-4 rounded-lg text-white font-semibold ${isDeparture ? 'bg-green-500 hover:bg-green-600' : 'bg-yellow-500 hover:bg-yellow-600'} disabled:bg-gray-400`}>
-                            {isProcessing ? 'Zpracovávám...' : (isDeparture ? 'Potvrdit vydání' : 'Potvrdit vrácení')}
+                         <button onClick={handleAction} disabled={isProcessing} className={`py-2 px-6 rounded-lg text-white font-semibold ${isDeparture ? 'bg-green-500 hover:bg-green-600' : 'bg-yellow-500 hover:bg-yellow-600'} disabled:bg-gray-400`}>
+                            {isProcessing ? 'Zpracovávám...' : (isDeparture ? 'Potvrdit a Vydat' : 'Potvrdit a Převzít')}
                         </button>
                     )}
                 </div>

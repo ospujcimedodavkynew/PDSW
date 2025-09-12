@@ -1,4 +1,3 @@
-
 export enum Page {
     DASHBOARD = 'dashboard',
     VEHICLES = 'vehicles',
@@ -40,6 +39,19 @@ export interface ServiceRecord {
     serviceDate: Date | string;
 }
 
+export interface DamageRecord {
+    id: string;
+    vehicleId: string;
+    reservationId: string;
+    description: string;
+    photoUrl?: string;
+    locationX: number;
+    locationY: number;
+    status: 'reported' | 'repaired';
+    reportedAt: Date | string;
+}
+
+
 export interface Customer {
     id: string;
     firstName: string;
@@ -68,6 +80,8 @@ export interface Reservation {
     totalPrice?: number;
     portalToken?: string;
     paymentMethod?: 'cash' | 'invoice';
+    handoverSignatureUrl?: string;
+    returnSignatureUrl?: string;
     // Populated fields from API
     customer?: Customer;
     vehicle?: Vehicle;
