@@ -1,4 +1,3 @@
-
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 import type { Vehicle, ServiceRecord, Customer, Reservation, Contract, FinancialTransaction, Invoice, CompanySettings } from '../types';
 
@@ -89,20 +88,23 @@ const toInvoice = (data: any): Invoice => ({
 
 // --- ARES API INTEGRATION ---
 export const fetchCompanyFromAres = async (ico: string): Promise<Partial<Customer>> => {
-    const url = `https://ares.gov.cz/ekonomicke-subjekty-v-ares/rest/ekonomicke-subjekty/${ico.trim()}`;
+    // FIX: Use a CORS-friendly proxy for ARES API
+    const url = `https://ares.darvins.cz/ico/${ico.trim()}`;
     
     try {
-        const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        const response = await fetch(url);
         if (!response.ok) {
             if (response.status === 404) throw new Error('Firma s daným IČO nebyla nalezena.');
             throw new Error(`Chyba ARES: Server odpověděl se statusem ${response.status}`);
         }
         const data = await response.json();
+        
+        // FIX: Adjust parsing for the proxy's response structure
         return {
-            companyName: data.obchodniJmeno || '',
+            companyName: data.obchodni_jmeno || '',
             companyId: ico.trim(),
             vatId: data.dic || '',
-            address: data.sidlo?.textovaAdresa || '',
+            address: data.sidlo?.textova_adresa || '',
         };
     } catch (error) {
         console.error("ARES API fetch error:", error);
