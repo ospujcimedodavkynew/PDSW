@@ -1,9 +1,8 @@
+
+
 import React from 'react';
-import {
-    LayoutDashboard, Calendar, Car, Users, DollarSign, FileText,
-    BarChart, Settings, LogOut, FilePlus, List
-} from 'lucide-react';
 import { Page } from '../types';
+import { LayoutDashboard, Car, Users, Calendar, FileText, DollarSign, LogOut } from 'lucide-react';
 import { signOut } from '../services/api';
 
 interface SidebarProps {
@@ -11,69 +10,55 @@ interface SidebarProps {
     setCurrentPage: (page: Page) => void;
 }
 
-const NavItem: React.FC<{
-    icon: React.ReactNode;
-    label: string;
-    page: Page;
-    currentPage: Page;
-    setCurrentPage: (page: Page) => void;
-}> = ({ icon, label, page, currentPage, setCurrentPage }) => {
-    const isActive = currentPage === page;
-    return (
-        <button
-            onClick={() => setCurrentPage(page)}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${isActive
-                ? 'bg-primary text-white shadow-lg'
-                : 'text-gray-600 hover:bg-primary-hover hover:text-white'
-                }`}
-        >
-            {icon}
-            <span className="font-medium">{label}</span>
-        </button>
-    );
-};
-
-
 const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage }) => {
-    const handleLogout = async () => {
+    const navItems = [
+        { page: Page.DASHBOARD, label: 'Přehled', icon: LayoutDashboard },
+        { page: Page.RESERVATIONS, label: 'Kalendář', icon: Calendar },
+        { page: Page.VEHICLES, label: 'Vozový park', icon: Car },
+        { page: Page.CUSTOMERS, label: 'Zákazníci', icon: Users },
+        { page: Page.CONTRACTS, label: 'Smlouvy', icon: FileText },
+        { page: Page.FINANCIALS, label: 'Finance', icon: DollarSign },
+    ];
+    
+    const handleSignOut = async () => {
         try {
             await signOut();
-            // Auth state change in App.tsx will handle redirect
+            // The onAuthStateChange listener in App.tsx will handle the redirect.
         } catch (error) {
-            console.error("Logout failed:", error);
-            alert('Odhlášení se nezdařilo.');
+            console.error("Failed to sign out:", error);
+            alert("Odhlášení se nezdařilo.");
         }
     };
 
-    const navItems = [
-        { icon: <LayoutDashboard />, label: "Přehled", page: Page.DASHBOARD },
-        { icon: <Calendar />, label: "Kalendář", page: Page.CALENDAR },
-        { icon: <FilePlus />, label: "Nová rezervace", page: Page.RESERVATIONS },
-        { icon: <List />, label: "Správa rezervací", page: Page.MANAGE_RESERVATIONS },
-        { icon: <Car />, label: "Vozidla", page: Page.VEHICLES },
-        { icon: <Users />, label: "Zákazníci", page: Page.CUSTOMERS },
-        { icon: <DollarSign />, label: "Finance", page: Page.FINANCIALS },
-        { icon: <FileText />, label: "Smlouvy", page: Page.CONTRACTS },
-        { icon: <BarChart />, label: "Reporty", page: Page.REPORTS },
-        { icon: <Settings />, label: "Nastavení", page: Page.SETTINGS },
-    ];
-
     return (
-        <div className="w-64 bg-white p-4 flex flex-col shadow-lg">
-            <div className="text-2xl font-bold text-primary mb-8 text-center">
+        <div className="w-64 bg-primary text-light-text flex flex-col h-screen">
+            <div className="p-6 text-2xl font-bold border-b border-blue-800 flex-shrink-0">
                 Van Rental Pro
             </div>
-            <nav className="flex-grow space-y-2">
-                {navItems.map(item => (
-                    <NavItem key={item.page} {...item} currentPage={currentPage} setCurrentPage={setCurrentPage} />
+            <nav className="flex-1 px-4 py-6 overflow-y-auto">
+                {navItems.map(({ page, label, icon: Icon }) => (
+                    <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={`w-full flex items-center px-4 py-3 my-1 rounded-lg transition-colors duration-200 ${
+                            currentPage === page
+                                ? 'bg-blue-700 text-white'
+                                : 'text-blue-200 hover:bg-blue-800 hover:text-white'
+                        }`}
+                    >
+                        <Icon className="w-5 h-5 mr-3" />
+                        <span className="font-medium">{label}</span>
+                    </button>
                 ))}
             </nav>
-            <div className="mt-auto">
-                <button
-                    onClick={handleLogout}
-                    className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-gray-600 hover:bg-red-500 hover:text-white transition-colors"
+
+            {/* Logout Button */}
+            <div className="px-4 py-4 border-t border-blue-800 flex-shrink-0">
+                 <button
+                    onClick={handleSignOut}
+                    className="w-full flex items-center px-4 py-3 rounded-lg text-blue-200 hover:bg-blue-800 hover:text-white transition-colors duration-200"
                 >
-                    <LogOut />
+                    <LogOut className="w-5 h-5 mr-3" />
                     <span className="font-medium">Odhlásit se</span>
                 </button>
             </div>

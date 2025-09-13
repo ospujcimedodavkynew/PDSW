@@ -1,190 +1,187 @@
-import React, { useState, useEffect, useMemo, FormEvent } from 'react';
-import { getVehicles, getCustomers, addReservation, getAvailableVehicles } from '../services/api';
-import { Vehicle, Customer, Page } from '../types';
-import { Search, Plus, User, Car, Calendar, DollarSign, Loader, AlertCircle } from 'lucide-react';
-import CustomerFormModal from '../components/CustomerFormModal';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { getVehicles, getCustomers, getReservations } from '../services/api';
+import type { Reservation, Vehicle, Customer } from '../types';
+import { ChevronLeft, ChevronRight, Plus, Loader } from 'lucide-react';
+import ReservationFormModal from '../components/ReservationFormModal';
 
-interface ReservationsProps {
-    setCurrentPage: (page: Page) => void;
-}
-
-const Reservations: React.FC<ReservationsProps> = ({ setCurrentPage }) => {
+const Reservations: React.FC = () => {
     const [vehicles, setVehicles] = useState<Vehicle[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
+    const [reservations, setReservations] = useState<Reservation[]>([]);
     const [loading, setLoading] = useState(true);
-    
-    const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
-    const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
-    
-    const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
-    const [isSaving, setIsSaving] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const [currentDate, setCurrentDate] = useState(new Date());
 
-    const fetchData = async () => {
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [modalData, setModalData] = useState<Partial<Reservation> & { initialDate?: Date } | null>(null);
+
+    const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const [vehiclesData, customersData] = await Promise.all([getVehicles(), getCustomers()]);
-            setVehicles(vehiclesData.filter(v => v.status === 'available' || v.status === 'rented')); // Show all for planning
-            setCustomers(customersData);
+            const [vehData, custData, resData] = await Promise.all([
+                getVehicles(),
+                getCustomers(),
+                getReservations(),
+            ]);
+            setVehicles(vehData);
+            setCustomers(custData);
+            setReservations(resData);
         } catch (error) {
-            console.error("Failed to fetch data for reservations:", error);
-            setError('Nepodařilo se načíst potřebná data.');
+            console.error("Failed to fetch calendar data:", error);
         } finally {
             setLoading(false);
         }
-    };
-    
-    useEffect(() => {
-        fetchData();
     }, []);
 
-    const selectedVehicle = useMemo(() => vehicles.find(v => v.id === selectedVehicleId), [vehicles, selectedVehicleId]);
+    useEffect(() => {
+        fetchData();
+    }, [fetchData]);
 
-    const totalPrice = useMemo(() => {
-        if (!selectedVehicle || !startDate || !endDate) return 0;
+    const { year, month, daysInMonth, firstDayOfMonth } = useMemo(() => {
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0 = Sunday, 1 = Monday...
+        return { year, month, daysInMonth, firstDayOfMonth: (firstDayOfMonth === 0 ? 6 : firstDayOfMonth -1) }; // Adjust to Mon-Sun week
+    }, [currentDate]);
 
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        if (end <= start) return 0;
-        
-        const durationHours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
-
-        if (durationHours <= 4) return selectedVehicle.rate4h;
-        if (durationHours <= 12) return selectedVehicle.rate12h;
-        
-        const durationDays = Math.ceil(durationHours / 24);
-        return durationDays * selectedVehicle.dailyRate;
-
-    }, [selectedVehicle, startDate, endDate]);
-
-    const handleSubmit = async (e: FormEvent) => {
-        e.preventDefault();
-        setError(null);
-        if (!selectedCustomerId || !selectedVehicleId || !startDate || !endDate) {
-            setError("Všechna pole jsou povinná.");
-            return;
-        }
-        if (new Date(endDate) <= new Date(startDate)) {
-            setError("Datum konce musí být po datu začátku.");
-            return;
-        }
-
-        setIsSaving(true);
-        try {
-            await addReservation({
-                customerId: selectedCustomerId,
-                vehicleId: selectedVehicleId,
-                startDate: new Date(startDate),
-                endDate: new Date(endDate),
-                totalPrice: totalPrice,
-                status: 'confirmed'
-            });
-            alert('Rezervace byla úspěšně vytvořena.');
-            setCurrentPage(Page.MANAGE_RESERVATIONS);
-        } catch (err) {
-            setError('Vytvoření rezervace se nezdařilo.');
-            console.error(err);
-        } finally {
-            setIsSaving(false);
-        }
-    };
+    const handlePrevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
+    const handleNextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
     
-    if (loading) return <div className="flex justify-center items-center h-full"><Loader className="w-8 h-8 animate-spin text-primary"/></div>;
+    const openModalForNew = (vehicleId: string, date?: number) => {
+        const initialDate = date != null ? new Date(year, month, date) : new Date();
+        setModalData({ vehicleId, initialDate });
+        setIsModalOpen(true);
+    };
+
+    const openModalForEdit = (reservation: Reservation) => {
+        setModalData(reservation);
+        setIsModalOpen(true);
+    };
+
+    const handleCloseModal = () => {
+        setIsModalOpen(false);
+        setModalData(null);
+    };
+
+    const handleSave = () => {
+        fetchData();
+        handleCloseModal();
+    };
+
+    const statusColors: { [key in Reservation['status']]: string } = {
+        'scheduled': 'bg-blue-500 border-blue-700',
+        'active': 'bg-yellow-500 border-yellow-700',
+        'completed': 'bg-green-500 border-green-700',
+        'pending-customer': 'bg-gray-400 border-gray-600',
+    };
+
+    if (loading) {
+        return <div className="flex items-center justify-center h-full"><Loader className="w-8 h-8 animate-spin" /> Načítání kalendáře...</div>;
+    }
 
     return (
-        <div className="space-y-6">
-             <CustomerFormModal
-                isOpen={isCustomerModalOpen}
-                onClose={() => setIsCustomerModalOpen(false)}
-                onSave={() => {
-                    setIsCustomerModalOpen(false);
-                    fetchData(); // Refresh customer list
-                }}
-                customer={null}
+        <div className="flex flex-col h-full">
+            <ReservationFormModal
+                isOpen={isModalOpen}
+                onClose={handleCloseModal}
+                onSave={handleSave}
+                reservationData={modalData}
+                vehicles={vehicles}
+                customers={customers}
             />
-            <h1 className="text-3xl font-bold text-gray-800">Nová rezervace</h1>
-            
-            <form onSubmit={handleSubmit} className="bg-white p-8 rounded-lg shadow-md max-w-4xl mx-auto space-y-8">
-                {/* Customer Selection */}
-                <div className="border-b pb-6">
-                    <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4"><User className="mr-3" />1. Zákazník</h2>
-                    <div className="flex items-center gap-4">
-                        <select
-                            value={selectedCustomerId}
-                            onChange={e => setSelectedCustomerId(e.target.value)}
-                            className="w-full p-3 border rounded-md bg-white flex-grow"
-                            required
-                        >
-                            <option value="">-- Vyberte existujícího zákazníka --</option>
-                            {customers.map(c => (
-                                <option key={c.id} value={c.id}>{c.firstName} {c.lastName} ({c.email})</option>
-                            ))}
-                        </select>
-                        <button type="button" onClick={() => setIsCustomerModalOpen(true)} className="bg-secondary text-dark-text font-bold py-3 px-4 rounded-lg hover:bg-secondary-hover transition-colors flex items-center whitespace-nowrap">
-                            <Plus className="w-5 h-5 mr-2" />
-                            Nový zákazník
-                        </button>
-                    </div>
+            {/* Header */}
+            <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center bg-white shadow-sm rounded-lg p-1">
+                    <button onClick={handlePrevMonth} className="p-2 rounded-md hover:bg-gray-100"><ChevronLeft /></button>
+                    <span className="w-48 text-center font-bold text-lg">
+                        {new Date(year, month).toLocaleString('cs-CZ', { month: 'long', year: 'numeric' })}
+                    </span>
+                    <button onClick={handleNextMonth} className="p-2 rounded-md hover:bg-gray-100"><ChevronRight /></button>
                 </div>
+                <button onClick={() => openModalForNew('')} className="bg-secondary text-dark-text font-bold py-2 px-4 rounded-lg hover:bg-secondary-hover transition-colors flex items-center">
+                    <Plus className="w-5 h-5 mr-2" />
+                    Nová rezervace
+                </button>
+            </div>
 
-                {/* Vehicle & Date Selection */}
-                <div className="border-b pb-6">
-                    <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4"><Car className="mr-3"/>2. Vozidlo a termín</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Vozidlo</label>
-                            <select
-                                value={selectedVehicleId}
-                                onChange={e => setSelectedVehicleId(e.target.value)}
-                                className="w-full p-3 border rounded-md bg-white"
-                                required
-                            >
-                                <option value="">-- Vyberte vozidlo --</option>
-                                {vehicles.map(v => (
-                                    <option key={v.id} value={v.id}>{v.name} ({v.licensePlate})</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                             <label className="block text-sm font-medium text-gray-700 mb-1">Termín pronájmu</label>
-                             <div className="grid grid-cols-2 gap-2">
-                                <input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full p-2 border rounded" title="Začátek pronájmu" required />
-                                <input type="datetime-local" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full p-2 border rounded" title="Konec pronájmu" required />
+            {/* Calendar */}
+            <div className="flex-grow bg-white p-4 rounded-lg shadow-md overflow-auto">
+                <div className="grid gap-px" style={{ gridTemplateColumns: `180px repeat(${daysInMonth}, minmax(40px, 1fr))` }}>
+                    {/* Header: Vehicle Name */}
+                    <div className="sticky top-0 left-0 z-20 bg-gray-100 p-2 font-semibold border-b border-r">Vozidlo</div>
+                    {/* Header: Days */}
+                    {Array.from({ length: daysInMonth }, (_, i) => {
+                         const day = i + 1;
+                         const d = new Date(year, month, day);
+                         const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                         return (
+                            <div key={i} className={`sticky top-0 z-10 p-2 text-center font-semibold border-b ${isWeekend ? 'bg-gray-200' : 'bg-gray-100'}`}>
+                                {day}
+                                <span className="block text-xs font-normal text-gray-500">{d.toLocaleString('cs-CZ', { weekday: 'short' })}</span>
                             </div>
-                        </div>
-                    </div>
-                </div>
+                         )
+                    })}
+                    
+                    {/* Rows: Vehicles and Reservations */}
+                    {vehicles.map((vehicle, vehicleIndex) => (
+                        <React.Fragment key={vehicle.id}>
+                            <div className="sticky left-0 z-10 p-2 font-medium bg-white border-r flex items-center" style={{ gridRow: vehicleIndex + 2 }}>
+                                {vehicle.name}
+                            </div>
+                            {/* Empty cells for clicking */}
+                            {Array.from({ length: daysInMonth }, (_, dayIndex) => (
+                                <div key={dayIndex} className="border-b border-r hover:bg-blue-50 cursor-pointer" style={{ gridRow: vehicleIndex + 2, gridColumn: dayIndex + 2 }} onClick={() => openModalForNew(vehicle.id, dayIndex + 1)}></div>
+                            ))}
+                            {/* Reservations for this vehicle */}
+                            {reservations
+                                .filter(r => r.vehicleId === vehicle.id)
+                                .map(r => {
+                                    const startDate = new Date(r.startDate);
+                                    const endDate = new Date(r.endDate);
 
-                {/* Summary & Submission */}
-                <div>
-                     <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4"><DollarSign className="mr-3"/>3. Souhrn a potvrzení</h2>
-                     {totalPrice > 0 ? (
-                         <div className="bg-primary-hover bg-opacity-10 p-6 rounded-lg text-center">
-                            <p className="text-lg text-gray-600">Předběžná cena pronájmu</p>
-                            <p className="text-4xl font-bold text-primary my-2">{totalPrice.toLocaleString('cs-CZ')} Kč</p>
-                         </div>
-                     ) : (
-                         <div className="text-center text-gray-500 p-6">
-                             Vyplňte prosím údaje výše pro výpočet ceny.
-                         </div>
-                     )}
+                                    // Determine the start and end column for the reservation
+                                    let startCol = 1;
+                                    if (startDate.getFullYear() === year && startDate.getMonth() === month) {
+                                        startCol = startDate.getDate();
+                                    } else if (startDate < new Date(year, month, 1)) {
+                                        startCol = 1;
+                                    } else {
+                                        return null; // Reservation is outside this month's view
+                                    }
+                                    
+                                    let endCol = daysInMonth;
+                                    if (endDate.getFullYear() === year && endDate.getMonth() === month) {
+                                        endCol = endDate.getDate();
+                                    } else if (endDate > new Date(year, month, daysInMonth)) {
+                                       endCol = daysInMonth;
+                                    } else {
+                                        return null;
+                                    }
+                                    
+                                    const duration = endCol - startCol + 1;
+                                    if (duration < 0) return null;
 
-                     {error && (
-                         <div className="mt-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded flex items-center" role="alert">
-                            <AlertCircle className="w-5 h-5 mr-2"/>
-                            <span className="block sm:inline">{error}</span>
-                        </div>
-                    )}
-                     
-                     <div className="mt-8 flex justify-end">
-                         <button type="submit" disabled={isSaving} className="bg-primary text-white font-bold py-3 px-8 rounded-lg hover:bg-primary-hover transition-colors text-lg disabled:bg-gray-400">
-                             {isSaving ? 'Vytvářím...' : 'Vytvořit rezervaci'}
-                         </button>
-                     </div>
+                                    return (
+                                        <div
+                                            key={r.id}
+                                            onClick={() => openModalForEdit(r)}
+                                            className={`absolute h-12 p-2 rounded-lg text-white font-semibold text-sm overflow-hidden whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity ${statusColors[r.status]}`}
+                                            style={{
+                                                top: `${(vehicleIndex * 3.5) + 3.5}rem`, // Adjust based on row height
+                                                left: `calc(180px + ${(startCol - 1) * (100 / daysInMonth)}%)`,
+                                                width: `calc(${duration * (100 / daysInMonth)}% - 4px)`,
+                                                transform: 'translateY(4px)'
+                                            }}
+                                        >
+                                           {r.customer ? `${r.customer.firstName} ${r.customer.lastName}` : 'Čeká na zákazníka'}
+                                        </div>
+                                    );
+                                })
+                            }
+                        </React.Fragment>
+                    ))}
                 </div>
-            </form>
+            </div>
         </div>
     );
 };

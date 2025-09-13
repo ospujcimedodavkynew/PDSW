@@ -1,328 +1,527 @@
-import { createClient, User, SupabaseClient, AuthChangeEvent, Session } from '@supabase/supabase-js';
-import { Customer, FinancialTransaction, Reservation, ServiceRecord, Vehicle, Contract, Page } from '../types';
-import { GoogleGenAI } from "@google/genai";
+import { createClient, Session, RealtimeChannel } from '@supabase/supabase-js';
+import type { Vehicle, Customer, Reservation, Contract, FinancialTransaction } from '../types';
 
-// Supabase setup
-const supabaseUrl = process.env.REACT_APP_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY || '';
+// Načtení konfigurace z globálního objektu window, který je definován v index.html
+const env = (window as any).env || {};
+const supabaseUrl = env.VITE_SUPABASE_URL;
+const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-    console.error("Supabase URL and Anon Key not found. Please add them to your environment variables.");
+
+// Exportujeme stav, aby UI mohlo reagovat a zobrazit chybovou hlášku.
+// Kontrolujeme, zda hodnoty nejsou výchozí placeholdery.
+export const areSupabaseCredentialsSet = 
+    !!(supabaseUrl && supabaseAnonKey && 
+    !supabaseUrl.includes("vasedomena") && 
+    !supabaseAnonKey.includes("vas_anon_public_klic"));
+
+const supabase = areSupabaseCredentialsSet ? createClient(supabaseUrl, supabaseAnonKey) : null;
+
+// Helper, který zajistí, že nevoláme funkce, pokud není klient nakonfigurován
+const getClient = () => {
+    if (!supabase) {
+        throw new Error("Supabase client is not initialized. Check your environment variables in index.html.");
+    }
+    return supabase;
 }
 
-export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+// Helper pro zpracování chyb od Supabase
+const handleSupabaseError = (error: any, context: string) => {
+    if (error) {
+        console.error(`Error in ${context}:`, error);
+        throw new Error(error.message);
+    }
+};
 
-// Gemini AI setup
-// FIX: Initialize Gemini AI client
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// --- Authentication API ---
 
-
-// --- AUTH ---
-export const onAuthStateChange = (callback: (event: AuthChangeEvent, session: Session | null) => void) => {
-    return supabase.auth.onAuthStateChange(callback);
-}
 export const signInWithPassword = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-}
+    const { error } = await getClient().auth.signInWithPassword({ email, password });
+    if (error) {
+        if (error.message === 'Invalid login credentials') {
+            throw new Error('Neplatné přihlašovací údaje. Zkontrolujte prosím e-mail a heslo.');
+        }
+        throw error;
+    }
+};
+
 export const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    const { error } = await getClient().auth.signOut();
+    handleSupabaseError(error, 'signOut');
+};
+
+export const getSession = async (): Promise<Session | null> => {
+    const { data, error } = await getClient().auth.getSession();
+    handleSupabaseError(error, 'getSession');
+    return data.session;
 }
 
-// --- REALTIME ---
-export const onTableChange = (table: string, callback: () => void) => {
-    const subscription = supabase.channel(`public:${table}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table }, payload => {
-            callback();
+export const onAuthChange = (callback: (session: Session | null) => void) => {
+    const { data: { subscription } } = getClient().auth.onAuthStateChange((_event, session) => {
+        callback(session);
+    });
+    return subscription;
+};
+
+
+// --- Real-time Subscriptions ---
+// A map to hold references to subscribed channels to avoid duplicates and ensure proper cleanup
+const subscribedChannels: Map<string, RealtimeChannel> = new Map();
+
+export const onTableChange = (
+    table: string, 
+    callback: (payload: any) => void
+) => {
+    const client = getClient();
+    const channelId = `public:${table}`;
+    
+    // Unsubscribe from any existing channel for this table first to prevent multiple listeners
+    if (subscribedChannels.has(channelId)) {
+        client.removeChannel(subscribedChannels.get(channelId)!);
+        subscribedChannels.delete(channelId);
+    }
+
+    const channel = client.channel(channelId)
+        .on('postgres_changes', { event: '*', schema: 'public', table }, (payload) => {
+            callback(payload);
         })
         .subscribe();
-    return () => supabase.removeChannel(subscription);
-};
-
-
-// --- DASHBOARD ---
-export const getDashboardStats = async () => {
-    const { data: vehicles, error: vehiclesError } = await supabase.from('vehicles').select('*');
-    if (vehiclesError) throw vehiclesError;
     
-    const { data: customers, error: customersError } = await supabase.from('customers').select('id');
-    if (customersError) throw customersError;
-
-    const { data: reservations, error: reservationsError } = await supabase
-        .from('reservations')
-        .select(`
-            *,
-            customer:customers(*),
-            vehicle:vehicles(*)
-        `)
-        .in('status', ['confirmed', 'pending-customer']);
-    if (reservationsError) throw reservationsError;
-
-    const now = new Date();
-    const todayStart = new Date(now.setHours(0, 0, 0, 0)).toISOString();
-    const todayEnd = new Date(now.setHours(23, 59, 59, 999)).toISOString();
-
-    const todaysDepartures = reservations.filter(r => new Date(r.startDate) >= new Date(todayStart) && new Date(r.startDate) <= new Date(todayEnd));
-    const todaysArrivals = reservations.filter(r => new Date(r.endDate) >= new Date(todayStart) && new Date(r.endDate) <= new Date(todayEnd));
-    const upcomingReservations = reservations.filter(r => new Date(r.startDate) > new Date(todayEnd)).length;
+    subscribedChannels.set(channelId, channel);
 
     return {
-        stats: {
-            availableVehicles: vehicles.filter(v => v.status === 'available').length,
-            totalVehicles: vehicles.length
-        },
-        upcomingReservations,
-        dueBack: todaysArrivals.length,
-        totalCustomers: customers.length,
-        todaysDepartures,
-        todaysArrivals,
-        vehicles
+        unsubscribe: () => {
+            if (subscribedChannels.has(channelId)) {
+                client.removeChannel(channel);
+                subscribedChannels.delete(channelId);
+            }
+        }
     };
 };
 
-// --- VEHICLES ---
+
+// --- Mappers for data consistency ---
+
+const toVehicle = (dbVehicle: any): Vehicle => ({
+    id: dbVehicle.id,
+    name: dbVehicle.name,
+    make: dbVehicle.make,
+    model: dbVehicle.model,
+    year: dbVehicle.year,
+    licensePlate: dbVehicle.license_plate,
+    status: dbVehicle.status,
+    imageUrl: dbVehicle.image_url || `https://placehold.co/600x400/e2e8f0/475569?text=${encodeURIComponent(dbVehicle.name || 'Vozidlo')}`,
+    rate4h: dbVehicle.rate4h,
+    rate12h: dbVehicle.rate12h,
+    dailyRate: dbVehicle.daily_rate,
+    features: dbVehicle.features || [],
+    currentMileage: dbVehicle.current_mileage ?? 0,
+});
+
+const fromVehicle = (vehicle: Partial<Vehicle>) => ({
+    name: vehicle.name,
+    make: vehicle.make,
+    model: vehicle.model,
+    year: vehicle.year,
+    license_plate: vehicle.licensePlate,
+    status: vehicle.status,
+    rate4h: vehicle.rate4h,
+    rate12h: vehicle.rate12h,
+    daily_rate: vehicle.dailyRate,
+    features: vehicle.features,
+    image_url: vehicle.imageUrl,
+    current_mileage: vehicle.currentMileage,
+});
+
+const toCustomer = (dbCustomer: any): Customer => ({
+    id: dbCustomer.id,
+    firstName: dbCustomer.first_name,
+    lastName: dbCustomer.last_name,
+    email: dbCustomer.email,
+    phone: dbCustomer.phone,
+    driverLicenseNumber: dbCustomer.driver_license_number,
+    address: dbCustomer.address,
+    driverLicenseImageUrl: dbCustomer.driver_license_image_url,
+});
+
+const fromCustomer = (customer: Partial<Customer>) => ({
+    first_name: customer.firstName,
+    last_name: customer.lastName,
+    email: customer.email,
+    phone: customer.phone,
+    driver_license_number: customer.driverLicenseNumber,
+    address: customer.address,
+    driver_license_image_url: customer.driverLicenseImageUrl,
+});
+
+const toReservation = (dbReservation: any): Reservation => ({
+    id: dbReservation.id,
+    customerId: dbReservation.customer_id,
+    vehicleId: dbReservation.vehicle_id,
+    startDate: dbReservation.start_date ? new Date(dbReservation.start_date) : new Date(0),
+    endDate: dbReservation.end_date ? new Date(dbReservation.end_date) : new Date(0),
+    status: dbReservation.status,
+    portalToken: dbReservation.portal_token,
+    notes: dbReservation.notes,
+    customer: dbReservation.customers ? toCustomer(dbReservation.customers) : undefined,
+    vehicle: dbReservation.vehicles ? toVehicle(dbReservation.vehicles) : undefined,
+    startMileage: dbReservation.start_mileage,
+    endMileage: dbReservation.end_mileage,
+});
+
+const toContract = (dbContract: any): Contract => ({
+    id: dbContract.id,
+    reservationId: dbContract.reservation_id,
+    customerId: dbContract.customer_id,
+    vehicleId: dbContract.vehicle_id,
+    generatedAt: new Date(dbContract.generated_at),
+    contractText: dbContract.contract_text,
+    customer: dbContract.customers ? toCustomer(dbContract.customers) : undefined,
+    vehicle: dbContract.vehicles ? toVehicle(dbContract.vehicles) : undefined,
+});
+
+const toFinancialTransaction = (dbTransaction: any): FinancialTransaction => ({
+    id: dbTransaction.id,
+    reservationId: dbTransaction.reservation_id,
+    amount: dbTransaction.amount,
+    date: new Date(dbTransaction.date),
+    description: dbTransaction.description,
+    type: dbTransaction.type,
+});
+
+
+// Vehicle API
 export const getVehicles = async (): Promise<Vehicle[]> => {
-    const { data, error } = await supabase.from('vehicles').select('*').order('name');
-    if (error) throw error;
-    return data;
-}
-export const addVehicle = async (vehicle: Omit<Vehicle, 'id' | 'imageUrl'>) => {
-    // This is a simplified version. In a real app, you'd handle image upload separately.
-    const newVehicle = { ...vehicle, imageUrl: 'https://via.placeholder.com/400x300.png?text=Van+Image' };
-    const { error } = await supabase.from('vehicles').insert(newVehicle);
-    if (error) throw error;
-}
-export const updateVehicle = async (vehicle: Vehicle) => {
-    const { error } = await supabase.from('vehicles').update(vehicle).eq('id', vehicle.id);
-    if (error) throw error;
-}
+    const { data, error } = await getClient().from('vehicles').select('*').order('name');
+    handleSupabaseError(error, 'getVehicles');
+    return (data || []).map(toVehicle);
+};
 
-// --- CUSTOMERS ---
-export const getCustomers = async (): Promise<Customer[]> => {
-    const { data, error } = await supabase.from('customers').select('*').order('lastName');
-    if (error) throw error;
-    return data;
-}
-export const addCustomer = async (customer: Omit<Customer, 'id' | 'driverLicenseImageUrl'>, file: File): Promise<Customer> => {
-    const filePath = `driver_licenses/${Date.now()}_${file.name}`;
-    const { error: uploadError } = await supabase.storage.from('documents').upload(filePath, file);
-    if (uploadError) throw uploadError;
-
-    const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath);
-
-    const { data, error } = await supabase.from('customers').insert({
-        ...customer,
-        driverLicenseImageUrl: urlData.publicUrl
-    }).select().single();
-    if (error) throw error;
-    return data;
-}
-export const updateCustomer = async (customer: Customer) => {
-    const { error } = await supabase.from('customers').update(customer).eq('id', customer.id);
-    if (error) throw error;
-}
-export const deleteCustomer = async (id: string) => {
-    const { error } = await supabase.from('customers').delete().eq('id', id);
-    if (error) throw error;
-}
-
-// --- RESERVATIONS ---
-export const getReservations = async (): Promise<Reservation[]> => {
-    const { data, error } = await supabase
-        .from('reservations')
-        .select(`*, customer:customers(*), vehicle:vehicles(*)`);
-    if (error) throw error;
-    return data;
-}
-
-export const getReservationByToken = async (token: string): Promise<Reservation | null> => {
-    const { data, error } = await supabase
-        .from('reservations')
-        .select(`*, vehicle:vehicles(*)`)
-        .eq('portalToken', token)
-        .single();
-    if (error) {
-        console.error("Error fetching reservation by token:", error);
-        return null;
-    }
-    return data;
-}
-
-export const createPendingReservation = async (vehicleId: string, startDate: Date, endDate: Date): Promise<Reservation> => {
-    const portalToken = crypto.randomUUID();
-    const { data, error } = await supabase.from('reservations').insert({
-        vehicleId,
-        startDate,
-        endDate,
-        status: 'pending-customer',
-        totalPrice: 0, // Price will be calculated later
-        portalToken,
-    }).select().single();
-    if (error) throw error;
-    return data;
-}
-
-export const submitCustomerDetails = async (token: string, customerData: Omit<Customer, 'id' | 'driverLicenseImageUrl'>, file: File) => {
-    // 1. Upload driver license
-    const filePath = `driver_licenses/${Date.now()}_${file.name}`;
-    const { error: uploadError } = await supabase.storage.from('documents').upload(filePath, file);
-    if (uploadError) throw uploadError;
-    const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath);
-
-    // 2. Create customer
-    const { data: newCustomer, error: customerError } = await supabase.from('customers').insert({
-        ...customerData,
-        driverLicenseImageUrl: urlData.publicUrl
-    }).select().single();
-    if(customerError) throw customerError;
-
-    // 3. Update reservation
-    const { error: reservationError } = await supabase
-        .from('reservations')
-        .update({ customerId: newCustomer.id, status: 'confirmed' })
-        .eq('portalToken', token);
-    if(reservationError) throw reservationError;
-}
-
-export const addReservation = async (reservation: Omit<Reservation, 'id'>) => {
-    const { error } = await supabase.from('reservations').insert(reservation);
-    if (error) throw error;
-}
-
-export const updateReservation = async (reservation: Partial<Reservation> & {id: string}) => {
-    const { error } = await supabase.from('reservations').update(reservation).eq('id', reservation.id);
-    if (error) throw error;
-}
-
-export const deleteReservation = async (id: string) => {
-    const { error } = await supabase.from('reservations').delete().eq('id', id);
-    if (error) throw error;
-}
-
-export const getAvailableVehicles = async (start: Date, end: Date): Promise<Vehicle[]> => {
-    // This is a simplified query. A real implementation should use a database function for accuracy.
-    const { data: reservations, error } = await supabase
-        .from('reservations')
-        .select('vehicleId')
-        .or(`startDate.lte.${end.toISOString()},endDate.gte.${start.toISOString()}`);
+export const addVehicle = async (vehicleData: Omit<Vehicle, 'id' | 'imageUrl'>): Promise<Vehicle> => {
+    const dbData = fromVehicle(vehicleData);
+    dbData.image_url = `https://placehold.co/600x400/e2e8f0/475569?text=${encodeURIComponent(vehicleData.name)}`;
     
-    if (error) throw error;
-    
-    const unavailableVehicleIds = reservations.map(r => r.vehicleId);
-    
-    const { data: vehicles, error: vehiclesError } = await supabase
+    const { data, error } = await getClient()
         .from('vehicles')
-        .select('*')
-        .not('id', 'in', `(${unavailableVehicleIds.join(',')})`);
+        .insert(dbData)
+        .select()
+        .single();
+    handleSupabaseError(error, 'addVehicle');
+    return toVehicle(data);
+};
+
+export const updateVehicle = async (updatedVehicle: Vehicle): Promise<Vehicle> => {
+    const dbData = fromVehicle(updatedVehicle);
+    const { data, error } = await getClient()
+        .from('vehicles')
+        .update(dbData)
+        .eq('id', updatedVehicle.id)
+        .select()
+        .single();
+    handleSupabaseError(error, 'updateVehicle');
+    return toVehicle(data);
+};
+
+// Customer API
+export const getCustomers = async (): Promise<Customer[]> => {
+    const { data, error } = await getClient().from('customers').select('*').order('last_name');
+    handleSupabaseError(error, 'getCustomers');
+    return (data || []).map(toCustomer);
+};
+
+export const addCustomer = async (customerData: Omit<Customer, 'id'>): Promise<Customer> => {
+    const { data, error } = await getClient().from('customers').insert(fromCustomer(customerData)).select().single();
+    handleSupabaseError(error, 'addCustomer');
+    return toCustomer(data);
+};
+
+export const updateCustomer = async (updatedCustomer: Customer): Promise<Customer> => {
+    const { data, error } = await getClient().from('customers').update(fromCustomer(updatedCustomer)).eq('id', updatedCustomer.id).select().single();
+    handleSupabaseError(error, 'updateCustomer');
+    return toCustomer(data);
+};
+
+// Reservation API
+export const getReservations = async (): Promise<Reservation[]> => {
+    const { data, error } = await getClient()
+        .from('reservations')
+        .select('*, customers(*), vehicles(*)');
+    handleSupabaseError(error, 'getReservations');
+    return (data || []).map(toReservation);
+};
+
+export const addReservation = async (reservationData: Pick<Reservation, 'customerId' | 'vehicleId' | 'startDate' | 'endDate' | 'status'>): Promise<Reservation> => {
+    const { data, error } = await getClient().from('reservations').insert({ 
+        customer_id: reservationData.customerId,
+        vehicle_id: reservationData.vehicleId,
+        start_date: reservationData.startDate.toISOString(),
+        end_date: reservationData.endDate.toISOString(),
+        status: reservationData.status
+    }).select().single();
+    handleSupabaseError(error, 'addReservation');
+    return toReservation(data);
+};
+
+
+export const updateReservation = async (reservationId: string, updates: Partial<Pick<Reservation, 'customerId' | 'vehicleId' | 'startDate' | 'endDate' | 'status' | 'notes'>>): Promise<Reservation> => {
+    const dbUpdates: Record<string, any> = {};
+    if (updates.customerId) dbUpdates.customer_id = updates.customerId;
+    if (updates.vehicleId) dbUpdates.vehicle_id = updates.vehicleId;
+    if (updates.startDate) dbUpdates.start_date = updates.startDate.toISOString();
+    if (updates.endDate) dbUpdates.end_date = updates.endDate.toISOString();
+    if (updates.status) dbUpdates.status = updates.status;
+    if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
+
+    const { data, error } = await getClient()
+        .from('reservations')
+        .update(dbUpdates)
+        .eq('id', reservationId)
+        .select()
+        .single();
+    handleSupabaseError(error, 'updateReservation');
+    return toReservation(data);
+};
+
+
+export const deleteReservation = async (reservationId: string): Promise<void> => {
+    const { error } = await getClient()
+        .from('reservations')
+        .delete()
+        .eq('id', reservationId);
+    handleSupabaseError(error, 'deleteReservation');
+};
+
+
+export const activateReservation = async (reservationId: string, startMileage: number): Promise<Reservation> => {
+    const { data: reservation, error: resError } = await getClient()
+        .from('reservations')
+        .update({ status: 'active', start_mileage: startMileage })
+        .eq('id', reservationId)
+        .select()
+        .single();
+    handleSupabaseError(resError, 'activateReservation - update reservation');
+
+    const { error: vehicleError } = await getClient()
+        .from('vehicles')
+        .update({ status: 'rented', current_mileage: startMileage })
+        .eq('id', reservation.vehicle_id);
+    handleSupabaseError(vehicleError, 'activateReservation - update vehicle');
     
-    if (vehiclesError) throw vehiclesError;
-    return vehicles;
+    return toReservation(reservation);
 };
 
+export const completeReservation = async (reservationId: string, endMileage: number, notes: string): Promise<Reservation> => {
+    const client = getClient();
+    // 1. Update reservation status
+    const { data: reservation, error: resError } = await client
+        .from('reservations')
+        .update({ status: 'completed', notes, end_mileage: endMileage })
+        .eq('id', reservationId)
+        .select('*, customers(*), vehicles(*)') // Fetch related data for financial transaction
+        .single();
+    handleSupabaseError(resError, 'completeReservation - update reservation');
 
-// --- CONTRACTS ---
-export const getContracts = async (): Promise<Contract[]> => {
-    const { data, error } = await supabase.from('contracts').select('*, customer:customers(*), vehicle:vehicles(*)');
-    if (error) throw error;
-    return data;
-}
+    // 2. Update vehicle status
+    const { error: vehicleError } = await client
+        .from('vehicles')
+        .update({ status: 'available', current_mileage: endMileage })
+        .eq('id', reservation.vehicle_id);
+    handleSupabaseError(vehicleError, 'completeReservation - update vehicle');
 
-export const generateContract = async (reservation: Reservation): Promise<string> => {
-    if (!reservation.customer || !reservation.vehicle) {
-        throw new Error("Customer and vehicle data are required to generate a contract.");
+    // 3. Calculate price and create financial transaction
+    const vehicle = toVehicle(reservation.vehicles);
+    const customer = toCustomer(reservation.customers);
+    const start = new Date(reservation.start_date);
+    const end = new Date(reservation.end_date);
+    
+    // Base rental price calculation
+    const durationHours = (end.getTime() - start.getTime()) / (1000 * 3600);
+    let rentalPrice = 0;
+    if (durationHours <= 4) {
+        rentalPrice = vehicle.rate4h;
+    } else if (durationHours <= 12) {
+        rentalPrice = vehicle.rate12h;
+    } else {
+        const days = Math.ceil(durationHours / 24);
+        rentalPrice = days * vehicle.dailyRate;
     }
-    const prompt = `
-        Vygeneruj jednoduchou smlouvu o nájmu vozidla v češtině.
 
-        Pronajímatel:
-        Van Rental Pro
-        Ukázková 123
-        110 00 Praha 1
-        IČO: 12345678
+    // Mileage fee calculation
+    const startKm = reservation.start_mileage || 0;
+    const endKm = endMileage;
+    const kmDriven = endKm > startKm ? endKm - startKm : 0;
+    const rentalDays = Math.max(1, Math.ceil(durationHours / (24)));
+    const kmLimit = rentalDays * 300;
+    const kmOver = Math.max(0, kmDriven - kmLimit);
+    const extraCharge = kmOver * 3;
 
-        Nájemce:
-        Jméno: ${reservation.customer.firstName} ${reservation.customer.lastName}
-        Adresa: ${reservation.customer.address}
-        Číslo ŘP: ${reservation.customer.driverLicenseNumber}
-        Telefon: ${reservation.customer.phone}
-        Email: ${reservation.customer.email}
+    const totalAmount = rentalPrice + extraCharge;
 
-        Vozidlo:
-        Typ: ${reservation.vehicle.name} (${reservation.vehicle.make} ${reservation.vehicle.model})
-        SPZ: ${reservation.vehicle.licensePlate}
-        Rok výroby: ${reservation.vehicle.year}
+    const description = `Příjem z pronájmu - ${vehicle.name} (${vehicle.licensePlate}) - ${customer.firstName} ${customer.lastName}`;
 
-        Doba nájmu:
-        Od: ${new Date(reservation.startDate).toLocaleString('cs-CZ')}
-        Do: ${new Date(reservation.endDate).toLocaleString('cs-CZ')}
-
-        Cena:
-        Celková cena: ${reservation.totalPrice.toLocaleString('cs-CZ')} Kč
-
-        Smlouva by měla obsahovat standardní klauzule o stavu vozidla, omezeních použití, odpovědnosti za škody a podpisy pro obě strany.
-        Text by měl být prostý text, dobře naformátovaný pro zobrazení.
-    `;
-
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
+    // Insert transaction
+    const { error: transactionError } = await client
+        .from('financial_transactions')
+        .insert({
+            reservation_id: reservation.id,
+            amount: totalAmount,
+            date: new Date().toISOString(),
+            description: description,
+            type: 'income',
         });
-        return response.text;
-    } catch (error) {
-        console.error("Error generating contract with Gemini API:", error);
-        throw new Error("Nepodařilo se vygenerovat text smlouvy.");
-    }
+    handleSupabaseError(transactionError, 'completeReservation - create financial transaction');
+    
+    return toReservation(reservation);
 };
 
-export const saveContract = async (contract: Omit<Contract, 'id' | 'generatedAt' | 'customer' | 'vehicle'>) => {
-    const { error } = await supabase.from('contracts').insert(contract);
-    if(error) throw error;
+// Self-service API
+export const createPendingReservation = async (vehicleId: string, startDate: Date, endDate: Date): Promise<Reservation> => {
+    const token = `portal-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    const { data, error } = await getClient()
+        .from('reservations')
+        .insert({
+            customer_id: null,
+            vehicle_id: vehicleId,
+            start_date: startDate.toISOString(),
+            end_date: endDate.toISOString(),
+            status: 'pending-customer',
+            portal_token: token
+        })
+        .select()
+        .single();
+    handleSupabaseError(error, 'createPendingReservation');
+    return toReservation(data);
+};
+
+export const getReservationByToken = async (token: string): Promise<Reservation | undefined> => {
+    const { data, error } = await getClient()
+        .from('reservations')
+        .select('*, vehicles(*)')
+        .eq('portal_token', token)
+        .single();
+    
+    if (error && error.code !== 'PGRST116') { // PGRST116 = "exact one row not found"
+      handleSupabaseError(error, 'getReservationByToken');
+    }
+    if (!data) return undefined;
+    return toReservation(data);
 }
 
+export const submitCustomerDetails = async (portalToken: string, customerData: Omit<Customer, 'id' | 'driverLicenseImageUrl'>, driverLicenseImage: File): Promise<Reservation> => {
+    const client = getClient();
+    let customerId: string;
 
-// --- SERVICE RECORDS ---
-export const getServiceRecordsForVehicle = async (vehicleId: string): Promise<ServiceRecord[]> => {
-    const { data, error } = await supabase.from('service_records').select('*').eq('vehicleId', vehicleId).order('serviceDate', { ascending: false });
-    if(error) throw error;
-    return data;
-}
-export const addServiceRecord = async (record: Omit<ServiceRecord, 'id'>, vehicleName: string) => {
-    const { data, error } = await supabase.from('service_records').insert(record).select().single();
-    if(error) throw error;
+    // 1. Zjistit, zda zákazník již existuje podle e-mailu
+    const { data: existingCustomer, error: findError } = await client
+        .from('customers')
+        .select('id')
+        .eq('email', customerData.email)
+        .single();
 
-    // Add corresponding expense
-    await addExpense({
-        description: `Servis: ${vehicleName} - ${record.description}`,
-        amount: record.cost,
-        date: record.serviceDate,
-    });
-    return data;
-}
-export const deleteServiceRecord = async (id: string) => {
-    const { error } = await supabase.from('service_records').delete().eq('id', id);
-    if (error) throw error;
-}
+    if (existingCustomer) {
+        // Zákazník existuje, použijeme jeho ID
+        customerId = existingCustomer.id;
+    } else if (findError && findError.code === 'PGRST116') { // PGRST116 = 'exact one row not found', což je v pořádku
+        // Zákazník neexistuje, vytvoříme nového
+        const { data: newCustomer, error: createError } = await client
+            .from('customers')
+            .insert(fromCustomer(customerData))
+            .select('id')
+            .single();
+        handleSupabaseError(createError, 'submitCustomerDetails - create customer');
+        customerId = newCustomer.id;
+    } else {
+        // Jiná chyba při hledání zákazníka
+        handleSupabaseError(findError, 'submitCustomerDetails - find customer');
+        throw new Error("Could not find or create customer.");
+    }
+    
+    // 2. Nahrát obrázek s unikátním názvem (ID zákazníka + časová značka)
+    const filePath = `${customerId}/${Date.now()}-${driverLicenseImage.name}`;
+    const { error: uploadError } = await client.storage
+        .from('licenses')
+        .upload(filePath, driverLicenseImage, {
+            // upsert: true by přepsalo stávající, ale náš název je už unikátní
+        });
+    handleSupabaseError(uploadError, 'submitCustomerDetails - image upload');
+
+    // 3. Získat veřejnou URL a aktualizovat záznam zákazníka
+    const { data: { publicUrl } } = client.storage
+        .from('licenses')
+        .getPublicUrl(filePath);
+
+    const { error: updateCustomerError } = await client
+        .from('customers')
+        .update({ driver_license_image_url: publicUrl })
+        .eq('id', customerId);
+    handleSupabaseError(updateCustomerError, 'submitCustomerDetails - update customer with image URL');
 
 
-// --- FINANCIALS ---
+    // 4. Aktualizovat rezervaci s ID zákazníka a změnit status
+    const { data: updatedReservation, error: reservationError } = await client
+        .from('reservations')
+        .update({
+            customer_id: customerId,
+            status: 'scheduled',
+        })
+        .eq('portal_token', portalToken)
+        .select()
+        .single();
+    handleSupabaseError(reservationError, 'submitCustomerDetails - update reservation');
+
+    return toReservation(updatedReservation);
+};
+
+// Contract API
+export const getContracts = async (): Promise<Contract[]> => {
+    const { data, error } = await getClient()
+        .from('contracts')
+        .select('*, customers(*), vehicles(*)')
+        .order('generated_at', { ascending: false });
+    handleSupabaseError(error, 'getContracts');
+    return (data || []).map(toContract);
+};
+
+export const addContract = async (contractData: Omit<Contract, 'id' | 'customer' | 'vehicle'>): Promise<Contract> => {
+    const { data, error } = await getClient()
+        .from('contracts')
+        .insert({
+            reservation_id: contractData.reservationId,
+            customer_id: contractData.customerId,
+            vehicle_id: contractData.vehicleId,
+            generated_at: contractData.generatedAt.toISOString(),
+            contract_text: contractData.contractText,
+        })
+        .select()
+        .single();
+    handleSupabaseError(error, 'addContract');
+    // The returned data from insert doesn't have joined customer/vehicle, so we return a partial contract.
+    // This is acceptable as we don't use the return value in the UI after creation.
+    return { ...toContract(data), customer: {} as Customer, vehicle: {} as Vehicle };
+};
+
+
+// Finance API
 export const getFinancials = async (): Promise<FinancialTransaction[]> => {
-    const { data, error } = await supabase.from('financial_transactions').select('*').order('date', { ascending: false });
-    if(error) throw error;
-    return data;
-}
+    const { data, error } = await getClient()
+        .from('financial_transactions')
+        .select('*')
+        .order('date', { ascending: false });
+    handleSupabaseError(error, 'getFinancials');
+    return (data || []).map(toFinancialTransaction);
+};
 
-export const addExpense = async (expense: Omit<FinancialTransaction, 'id' | 'type'>) => {
-    const { error } = await supabase.from('financial_transactions').insert({ ...expense, type: 'expense' });
-    if (error) throw error;
-}
-
-// --- REPORTS ---
-export const getReportsData = async () => {
-    // Placeholder function
-    return {
-        vehiclePerformance: [],
-        incomeByCategory: []
-    };
-}
+export const addExpense = async (expenseData: { amount: number; date: Date; description: string }): Promise<FinancialTransaction> => {
+    const { data, error } = await getClient()
+        .from('financial_transactions')
+        .insert({
+            reservation_id: null,
+            amount: expenseData.amount,
+            date: expenseData.date.toISOString(),
+            description: expenseData.description,
+            type: 'expense',
+        })
+        .select()
+        .single();
+    handleSupabaseError(error, 'addExpense');
+    return toFinancialTransaction(data);
+};

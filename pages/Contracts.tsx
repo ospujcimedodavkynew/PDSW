@@ -8,6 +8,9 @@ const Contracts: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    
+    const ITEMS_PER_PAGE = 15;
 
     useEffect(() => {
         const fetchData = async () => {
@@ -26,18 +29,31 @@ const Contracts: React.FC = () => {
 
     const filteredContracts = useMemo(() => {
         return contracts.filter(contract => {
-            const searchLower = searchTerm.toLowerCase();
             const customerName = `${contract.customer?.firstName} ${contract.customer?.lastName}`.toLowerCase();
             const vehicleName = contract.vehicle?.name.toLowerCase() || '';
             const licensePlate = contract.vehicle?.licensePlate.toLowerCase() || '';
-            return (
-                customerName.includes(searchLower) ||
-                vehicleName.includes(searchLower) ||
-                licensePlate.includes(searchLower) ||
-                contract.id.toLowerCase().includes(searchLower)
-            );
+            const term = searchTerm.toLowerCase();
+
+            return term === '' ||
+                customerName.includes(term) ||
+                vehicleName.includes(term) ||
+                licensePlate.includes(term);
         });
     }, [contracts, searchTerm]);
+    
+    const pageCount = Math.ceil(filteredContracts.length / ITEMS_PER_PAGE);
+    const paginatedContracts = filteredContracts.slice(
+        (currentPage - 1) * ITEMS_PER_PAGE,
+        currentPage * ITEMS_PER_PAGE
+    );
+    
+    useEffect(() => {
+        // Reset to first page if filters change and current page is out of bounds
+        if (currentPage > pageCount) {
+            setCurrentPage(1);
+        }
+    }, [filteredContracts, currentPage, pageCount]);
+
 
     if (loading) return <div>Načítání smluv...</div>;
     
@@ -90,15 +106,14 @@ const Contracts: React.FC = () => {
     return (
         <div>
             <div className="flex justify-between items-center mb-6">
-                <h1 className="text-3xl font-bold text-gray-800">Archiv smluv</h1>
-                <div className="relative">
+                 <div className="relative w-full max-w-md">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                     <input
                         type="text"
-                        placeholder="Hledat smlouvu..."
+                        placeholder="Hledat podle zákazníka nebo vozidla..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full md:w-80 p-2 pl-10 border rounded-lg"
+                        className="w-full p-2 pl-10 border rounded-md"
                     />
                 </div>
             </div>
@@ -114,8 +129,8 @@ const Contracts: React.FC = () => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                        {filteredContracts.length > 0 ? (
-                            filteredContracts.map(contract => (
+                        {paginatedContracts.length > 0 ? (
+                            paginatedContracts.map(contract => (
                                 <tr key={contract.id} className="hover:bg-gray-50">
                                     <td className="px-5 py-4 text-sm text-gray-500 font-mono">{contract.id.substring(0, 8)}...</td>
                                     <td className="px-5 py-4">{contract.customer?.firstName} {contract.customer?.lastName}</td>
@@ -129,12 +144,31 @@ const Contracts: React.FC = () => {
                         ) : (
                             <tr>
                                 <td colSpan={5} className="text-center py-10 text-gray-500">
-                                    Žádné smlouvy neodpovídají vašemu vyhledávání.
+                                    Nebyly nalezeny žádné smlouvy odpovídající hledání.
                                 </td>
                             </tr>
                         )}
                     </tbody>
                 </table>
+                 {pageCount > 1 && (
+                    <div className="p-4 flex justify-between items-center">
+                        <button
+                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                            disabled={currentPage === 1}
+                            className="px-4 py-2 bg-gray-200 rounded-md disabled:opacity-50"
+                        >
+                            Předchozí
+                        </button>
+                        <span>Stránka {currentPage} z {pageCount}</span>
+                        <button
+                            onClick={() => setCurrentPage(p => Math.min(pageCount, p + 1))}
+                            disabled={currentPage === pageCount}
+                             className="px-4 py-2 bg-gray-200 rounded-md disabled:opacity-50"
+                        >
+                            Následující
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
