@@ -1,478 +1,187 @@
-
-import React, { useEffect, useState, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
-import { getVehicles, getCustomers, getReservations, addCustomer, addReservation, addContract, fetchCompanyFromAres } from '../services/api';
-// FIX: 'Page' is an enum used as a value, so it cannot be imported with 'import type'.
-import { Page } from '../types';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { getVehicles, getCustomers, getReservations } from '../services/api';
 import type { Reservation, Vehicle, Customer } from '../types';
-import { UserPlus, Car, Calendar as CalendarIcon, Signature, Loader, Send, Clock, Building, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Loader } from 'lucide-react';
+import ReservationFormModal from '../components/ReservationFormModal';
 
-// Signature Pad Component
-interface SignaturePadHandles {
-    getSignature: () => string;
-    clear: () => void;
-    isEmpty: () => boolean;
-}
-
-const SignaturePad = forwardRef<SignaturePadHandles>((props, ref) => {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const [isDrawing, setIsDrawing] = useState(false);
-    const [isEmpty, setIsEmpty] = useState(true);
-
-    const getContext = () => canvasRef.current?.getContext('2d');
-
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        if (canvas) {
-            const ctx = getContext();
-            if (ctx) {
-                ctx.strokeStyle = '#000';
-                ctx.lineWidth = 2;
-                ctx.lineCap = 'round';
-            }
-        }
-    }, []);
-    
-    const getCoords = (e: React.MouseEvent | React.TouchEvent): { x: number, y: number } => {
-        const canvas = canvasRef.current;
-        if (!canvas) return { x: 0, y: 0 };
-        const rect = canvas.getBoundingClientRect();
-        if ('touches' in e.nativeEvent) {
-             return { x: e.nativeEvent.touches[0].clientX - rect.left, y: e.nativeEvent.touches[0].clientY - rect.top };
-        }
-        return { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY };
-    }
-
-    const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
-        const ctx = getContext();
-        if (ctx) {
-            const { x, y } = getCoords(e);
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-            setIsDrawing(true);
-            setIsEmpty(false);
-        }
-    };
-
-    const draw = (e: React.MouseEvent | React.TouchEvent) => {
-        if (!isDrawing) return;
-        const ctx = getContext();
-        if (ctx) {
-            const { x, y } = getCoords(e);
-            ctx.lineTo(x, y);
-            ctx.stroke();
-        }
-    };
-
-    const stopDrawing = () => {
-        const ctx = getContext();
-        if (ctx) {
-            ctx.closePath();
-            setIsDrawing(false);
-        }
-    };
-
-    const clear = () => {
-        const ctx = getContext();
-        const canvas = canvasRef.current;
-        if (ctx && canvas) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            setIsEmpty(true);
-        }
-    };
-
-    useImperativeHandle(ref, () => ({
-        getSignature: () => {
-            if (isEmpty || !canvasRef.current) return '';
-            return canvasRef.current.toDataURL('image/png');
-        },
-        clear,
-        isEmpty: () => isEmpty,
-    }));
-
-    return (
-        <div>
-            <canvas
-                ref={canvasRef}
-                className="w-full h-40 border border-gray-300 rounded-md bg-white cursor-crosshair"
-                onMouseDown={startDrawing}
-                onMouseMove={draw}
-                onMouseUp={stopDrawing}
-                onMouseLeave={stopDrawing}
-                onTouchStart={startDrawing}
-                onTouchMove={draw}
-                onTouchEnd={stopDrawing}
-            />
-            <button type="button" onClick={clear} className="text-sm mt-2 text-primary hover:underline">
-                Vymazat podpis
-            </button>
-        </div>
-    );
-});
-
-
-const Reservations: React.FC<{ setCurrentPage: (page: Page) => void }> = ({ setCurrentPage }) => {
-    // Data states
-    const [customers, setCustomers] = useState<Customer[]>([]);
+const Reservations: React.FC = () => {
     const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+    const [customers, setCustomers] = useState<Customer[]>([]);
     const [reservations, setReservations] = useState<Reservation[]>([]);
     const [loading, setLoading] = useState(true);
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [currentDate, setCurrentDate] = useState(new Date());
 
-    // Form states
-    const [customerType, setCustomerType] = useState<'person' | 'company'>('person');
-    const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
-    const [isNewCustomer, setIsNewCustomer] = useState(false);
-    const [newCustomerData, setNewCustomerData] = useState<Omit<Customer, 'id'>>({ firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: '', companyName: '', companyId: '', vatId: '' });
-    const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
-    const [duration, setDuration] = useState<{type: 'hours' | 'days', value: number} | null>(null);
-    const signaturePadRef = useRef<SignaturePadHandles>(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [modalData, setModalData] = useState<Partial<Reservation> & { initialDate?: Date } | null>(null);
 
-    // ARES integration states
-    const [aresLoading, setAresLoading] = useState(false);
-    const [aresError, setAresError] = useState<string | null>(null);
-
-    // Fetch initial data
-    useEffect(() => {
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                const [resData, custData, vehData] = await Promise.all([getReservations(), getCustomers(), getVehicles()]);
-                setReservations(resData);
-                setCustomers(custData);
-                setVehicles(vehData);
-            } catch (error) {
-                console.error("Failed to fetch data:", error);
-                alert("Nepodařilo se načíst potřebná data.");
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchData();
+    const fetchData = useCallback(async () => {
+        setLoading(true);
+        try {
+            const [vehData, custData, resData] = await Promise.all([
+                getVehicles(),
+                getCustomers(),
+                getReservations(),
+            ]);
+            setVehicles(vehData);
+            setCustomers(custData);
+            setReservations(resData);
+        } catch (error) {
+            console.error("Failed to fetch calendar data:", error);
+        } finally {
+            setLoading(false);
+        }
     }, []);
 
-    const handleAresFetch = async () => {
-        if (!newCustomerData.companyId) {
-            setAresError('Zadejte prosím IČO.');
-            return;
-        }
-        setAresLoading(true);
-        setAresError(null);
-        try {
-            const companyDetails = await fetchCompanyFromAres(newCustomerData.companyId);
-            setNewCustomerData(prev => ({
-                ...prev,
-                companyName: companyDetails.companyName || prev.companyName,
-                vatId: companyDetails.vatId || prev.vatId,
-                address: companyDetails.address || prev.address,
-            }));
-        } catch (err) {
-            setAresError(err instanceof Error ? err.message : 'Nepodařilo se načíst údaje.');
-        } finally {
-            setAresLoading(false);
-        }
-    };
-
-    const handleDurationChange = (type: 'hours' | 'days', value: number) => {
-        if (isNaN(value) || value <= 0) {
-             setDuration(null);
-             return;
-        }
-        setDuration({ type, value });
-        setSelectedVehicleId(''); // Reset vehicle choice on duration change
-    };
-    
     useEffect(() => {
-        if (!startDate || !duration) {
-            setEndDate('');
-            return;
-        }
-        const start = new Date(startDate);
-        if (isNaN(start.getTime())) {
-             setEndDate('');
-             return;
-        }
-        let end;
-        if (duration.type === 'hours') {
-            end = new Date(start.getTime() + duration.value * 60 * 60 * 1000);
-        } else { // type is 'days'
-            end = new Date(start.getTime() + duration.value * 24 * 60 * 60 * 1000);
-        }
-        const pad = (num: number) => num.toString().padStart(2, '0');
-        const formattedEnd = `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}`;
-        setEndDate(formattedEnd);
-    }, [startDate, duration]);
+        fetchData();
+    }, [fetchData]);
 
+    const { year, month, daysInMonth, firstDayOfMonth } = useMemo(() => {
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0 = Sunday, 1 = Monday...
+        return { year, month, daysInMonth, firstDayOfMonth: (firstDayOfMonth === 0 ? 6 : firstDayOfMonth -1) }; // Adjust to Mon-Sun week
+    }, [currentDate]);
 
-    const availableVehicles = useMemo(() => {
-        if (!startDate || !endDate) return [];
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        if (end <= start) return [];
-        const conflictingVehicleIds = new Set(
-            reservations
-                .filter(r => r.status === 'scheduled' || r.status === 'active')
-                .filter(r => start < new Date(r.endDate) && end > new Date(r.startDate))
-                .map(r => r.vehicleId)
-        );
-        return vehicles.filter(v => v.status === 'available' && !conflictingVehicleIds.has(v.id));
-    }, [vehicles, reservations, startDate, endDate]);
-
-    const selectedVehicle = useMemo(() => vehicles.find(v => v.id === selectedVehicleId), [vehicles, selectedVehicleId]);
-    const totalPrice = useMemo(() => {
-        if (!selectedVehicle || !startDate || !endDate) return 0;
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        if (end <= start) return 0;
-        const durationHours = (end.getTime() - start.getTime()) / (1000 * 3600);
-        if (durationHours <= 4) return selectedVehicle.rate4h;
-        if (durationHours <= 12) return selectedVehicle.rate12h;
-        return Math.ceil(durationHours / 24) * selectedVehicle.dailyRate;
-    }, [selectedVehicle, startDate, endDate]);
+    const handlePrevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
+    const handleNextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
     
-    const resetForm = () => {
-        setSelectedCustomerId('');
-        setIsNewCustomer(false);
-        setNewCustomerData({ firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: '', companyName: '', companyId: '', vatId: '' });
-        setSelectedVehicleId('');
-        setStartDate('');
-        setEndDate('');
-        setDuration(null);
-        signaturePadRef.current?.clear();
+    const openModalForNew = (vehicleId: string, date?: number) => {
+        const initialDate = date != null ? new Date(year, month, date) : new Date();
+        setModalData({ vehicleId, initialDate });
+        setIsModalOpen(true);
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        
-        if (!isNewCustomer && !selectedCustomerId) { alert("Vyberte prosím zákazníka."); return; }
-        if (isNewCustomer && customerType === 'person' && (!newCustomerData.firstName || !newCustomerData.lastName || !newCustomerData.email)) { alert("Vyplňte prosím údaje o novém zákazníkovi."); return; }
-        if (isNewCustomer && customerType === 'company' && (!newCustomerData.companyName || !newCustomerData.companyId)) { alert("Vyplňte prosím IČO a název firmy."); return; }
-        if (!selectedVehicleId) { alert("Vyberte prosím vozidlo."); return; }
-        if (!startDate || !endDate) { alert("Vyberte prosím období pronájmu."); return; }
-        if (new Date(endDate) <= new Date(startDate)) { alert("Datum konce musí být po datu začátku."); return; }
-        if (signaturePadRef.current?.isEmpty()) { alert("Zákazník se musí podepsat."); return; }
-        if (!availableVehicles.some(v => v.id === selectedVehicleId)) { alert("Vybrané vozidlo není v tomto termínu dostupné."); return; }
-
-        try {
-            setIsSubmitting(true);
-            let customerForContract: Customer | undefined;
-            let finalCustomerId = selectedCustomerId;
-
-            if (isNewCustomer) {
-                const trimmedEmail = newCustomerData.email.trim().toLowerCase();
-                if (trimmedEmail) { // Email is not mandatory for companies
-                    const existingCustomer = customers.find(c => c.email.toLowerCase() === trimmedEmail);
-                    if (existingCustomer) {
-                        alert("Zákazník s tímto e-mailem již existuje. Vyberte ho prosím ze seznamu stávajících zákazníků.");
-                        setIsSubmitting(false);
-                        return;
-                    }
-                }
-                const newCustomer = await addCustomer({ ...newCustomerData, email: trimmedEmail });
-                finalCustomerId = newCustomer.id;
-                customerForContract = newCustomer;
-            } else {
-                 customerForContract = customers.find(c => c.id === finalCustomerId);
-            }
-
-            if (!customerForContract) throw new Error("Nepodařilo se nalézt data zákazníka.");
-
-            const newReservation = await addReservation({
-                customerId: finalCustomerId,
-                vehicleId: selectedVehicleId,
-                startDate: new Date(startDate),
-                endDate: new Date(endDate),
-                totalPrice: totalPrice,
-            });
-
-            const contractText = `SMLOUVA O NÁJMU DOPRAVNÍHO PROSTŘEDKU\n=========================================\n\nČlánek I. - Smluvní strany\n-----------------------------------------\nPronajímatel:\nMilan Gula\nGhegova 17, Brno, 60200\nWeb: Pujcimedodavky.cz\nIČO: 07031653\n(dále jen "pronajímatel")\n\nNájemce:\n${customerForContract.companyName ? `Firma: ${customerForContract.companyName}\nIČO: ${customerForContract.companyId}\nDIČ: ${customerForContract.vatId || 'N/A'}\nKontaktní osoba: ${customerForContract.firstName} ${customerForContract.lastName}` : `Jméno: ${customerForContract.firstName} ${customerForContract.lastName}`}\nEmail: ${customerForContract.email}\nTelefon: ${customerForContract.phone}\nČíslo ŘP: ${customerForContract.driverLicenseNumber}\nAdresa: ${customerForContract.address}\n(dále jen "nájemce")\n\nČlánek II. - Předmět nájmu\n-----------------------------------------\nPronajímatel tímto přenechává nájemci do dočasného užívání následující motorové vozidlo:\nVozidlo: ${selectedVehicle?.name}\nSPZ: ${selectedVehicle?.licensePlate}\nRok výroby: ${selectedVehicle?.year}\n\nČlánek III. - Doba nájmu a cena\n-----------------------------------------\nDoba nájmu: od ${new Date(startDate).toLocaleString('cs-CZ')} do ${new Date(endDate).toLocaleString('cs-CZ')}\nCelková cena nájmu: ${totalPrice.toLocaleString('cs-CZ')} Kč\n\nČlánek IV. - Práva a povinnosti\n-----------------------------------------\n1. Nájemce potvrzuje, že vozidlo převzal v řádném technickém stavu, bez zjevných závad a s kompletní povinnou výbavou.\n2. Nájemce je povinen užívat vozidlo s péčí řádného hospodáře a chránit ho před poškozením, ztrátou či zničením.\n\nČlánek V. - Spoluúčast a poškození vozidla\n-----------------------------------------\nV případě poškození vozidla zaviněného nájemcem se sjednává spoluúčast ve výši 5.000 Kč až 10.000 Kč dle rozsahu poškození.\n\nČlánek VI. - Stav kilometrů a limit\n-----------------------------------------\nPočáteční stav kilometrů: ${(selectedVehicle?.currentMileage ?? 0).toLocaleString('cs-CZ')} km\nDenní limit pro nájezd je 300 km. Za každý kilometr nad tento limit bude účtován poplatek 3 Kč/km.\n\nČlánek VII. - Závěrečná ustanovení\n-----------------------------------------\nTato smlouva je vyhotovena elektronicky. Nájemce svým digitálním podpisem stvrzuje, že se seznámil s obsahem smlouvy, souhlasí s ním a vozidlo v uvedeném stavu přebírá.`;
-            
-            await addContract({
-                reservationId: newReservation.id,
-                customerId: finalCustomerId,
-                vehicleId: selectedVehicleId,
-                generatedAt: new Date(),
-                contractText: contractText
-            });
-
-            const bccEmail = "smlouvydodavky@gmail.com";
-            const mailtoBody = encodeURIComponent(contractText);
-            const mailtoLink = `mailto:${customerForContract.email}?bcc=${bccEmail}&subject=${encodeURIComponent(`Smlouva o pronájmu vozidla ${selectedVehicle?.name}`)}&body=${mailtoBody}`;
-            
-            window.location.href = mailtoLink;
-            alert("Rezervace byla úspěšně vytvořena a smlouva uložena!");
-            resetForm();
-            setCurrentPage(Page.MANAGE_RESERVATIONS);
-            
-        } catch (error) {
-            alert(`Chyba při vytváření rezervace: ${error instanceof Error ? error.message : "Neznámá chyba"}`);
-        } finally {
-            setIsSubmitting(false);
-        }
+    const openModalForEdit = (reservation: Reservation) => {
+        setModalData(reservation);
+        setIsModalOpen(true);
     };
 
-    if (loading) return <div className="flex justify-center items-center h-full"><Loader className="w-8 h-8 animate-spin text-primary"/></div>;
-
-    const renderNewCustomerForm = () => {
-        if (!isNewCustomer) return null;
-    
-        if (customerType === 'company') {
-            return (
-                <div className="mt-4 space-y-3 p-4 bg-gray-50 rounded-md border">
-                    <h3 className="font-semibold text-gray-600">Údaje nové firmy</h3>
-                    <div className="flex items-start gap-2">
-                        <div className="flex-grow">
-                            <label className="text-sm font-medium text-gray-700">IČO</label>
-                            <input type="text" placeholder="IČO" value={newCustomerData.companyId || ''} onChange={e => setNewCustomerData({...newCustomerData, companyId: e.target.value})} className="w-full p-2 border rounded mt-1" required={isNewCustomer} />
-                            {aresError && <p className="text-red-500 text-xs mt-1">{aresError}</p>}
-                        </div>
-                        <button type="button" onClick={handleAresFetch} disabled={aresLoading} className="py-2 px-3 mt-7 rounded-lg bg-gray-600 text-white hover:bg-gray-700 disabled:bg-gray-400 text-sm flex items-center">
-                            {aresLoading ? <Loader className="w-4 h-4 animate-spin"/> : <Search className="w-4 h-4"/>}
-                            <span className="ml-2">Načíst z ARES</span>
-                        </button>
-                    </div>
-                    <input type="text" placeholder="Název firmy" value={newCustomerData.companyName || ''} onChange={e => setNewCustomerData({...newCustomerData, companyName: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                    <input type="text" placeholder="Adresa" value={newCustomerData.address || ''} onChange={e => setNewCustomerData({...newCustomerData, address: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                     <input type="text" placeholder="DIČ (pokud existuje)" value={newCustomerData.vatId || ''} onChange={e => setNewCustomerData({...newCustomerData, vatId: e.target.value})} className="w-full p-2 border rounded" />
-                    <div className="pt-2 border-t">
-                        <h4 className="font-semibold text-gray-600 text-sm my-2">Kontaktní osoba</h4>
-                        <div className="grid grid-cols-2 gap-4">
-                            <input type="text" placeholder="Jméno" value={newCustomerData.firstName} onChange={e => setNewCustomerData({...newCustomerData, firstName: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                            <input type="text" placeholder="Příjmení" value={newCustomerData.lastName} onChange={e => setNewCustomerData({...newCustomerData, lastName: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                        </div>
-                        <input type="email" placeholder="Kontaktní email" value={newCustomerData.email} onChange={e => setNewCustomerData({...newCustomerData, email: e.target.value})} className="w-full p-2 border rounded mt-3" required={isNewCustomer} />
-                        <div className="grid grid-cols-2 gap-4 mt-3">
-                             <input type="tel" placeholder="Kontaktní telefon" value={newCustomerData.phone} onChange={e => setNewCustomerData({...newCustomerData, phone: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                            <input type="text" placeholder="Číslo ŘP kontaktní osoby" value={newCustomerData.driverLicenseNumber} onChange={e => setNewCustomerData({...newCustomerData, driverLicenseNumber: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-    
-        return (
-            <div className="mt-4 space-y-3 p-4 bg-gray-50 rounded-md border">
-                <h3 className="font-semibold text-gray-600">Údaje nového zákazníka</h3>
-                <div className="grid grid-cols-2 gap-4">
-                    <input type="text" placeholder="Jméno" value={newCustomerData.firstName} onChange={e => setNewCustomerData({...newCustomerData, firstName: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                    <input type="text" placeholder="Příjmení" value={newCustomerData.lastName} onChange={e => setNewCustomerData({...newCustomerData, lastName: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                </div>
-                <input type="email" placeholder="Email" value={newCustomerData.email} onChange={e => setNewCustomerData({...newCustomerData, email: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                <input type="text" placeholder="Adresa" value={newCustomerData.address} onChange={e => setNewCustomerData({...newCustomerData, address: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                <div className="grid grid-cols-2 gap-4">
-                     <input type="tel" placeholder="Telefon" value={newCustomerData.phone} onChange={e => setNewCustomerData({...newCustomerData, phone: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                    <input type="text" placeholder="Číslo ŘP" value={newCustomerData.driverLicenseNumber} onChange={e => setNewCustomerData({...newCustomerData, driverLicenseNumber: e.target.value})} className="w-full p-2 border rounded" required={isNewCustomer} />
-                </div>
-            </div>
-        );
+    const handleCloseModal = () => {
+        setIsModalOpen(false);
+        setModalData(null);
     };
+
+    const handleSave = () => {
+        fetchData();
+        handleCloseModal();
+    };
+
+    const statusColors: { [key in Reservation['status']]: string } = {
+        'scheduled': 'bg-blue-500 border-blue-700',
+        'active': 'bg-yellow-500 border-yellow-700',
+        'completed': 'bg-green-500 border-green-700',
+        'pending-customer': 'bg-gray-400 border-gray-600',
+    };
+
+    if (loading) {
+        return <div className="flex items-center justify-center h-full"><Loader className="w-8 h-8 animate-spin" /> Načítání kalendáře...</div>;
+    }
 
     return (
-        <div className="max-w-4xl mx-auto">
-            <h1 className="text-3xl font-bold text-gray-800 mb-6">Nová rezervace</h1>
-            <form onSubmit={handleSubmit} className="bg-white p-8 rounded-lg shadow-lg space-y-8">
-                {/* Customer Section */}
-                <section>
-                    <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4 border-b pb-2"><UserPlus className="mr-3 text-primary"/>Krok 1: Zákazník</h2>
-                    
-                    <div className="flex items-center space-x-2 p-1 bg-gray-100 rounded-lg max-w-sm mb-4">
-                        <button type="button" onClick={() => { setCustomerType('person'); setIsNewCustomer(false); setSelectedCustomerId(''); }} className={`w-full py-2 px-4 rounded-md font-semibold text-sm transition-all ${customerType === 'person' ? 'bg-white shadow text-primary' : 'text-gray-600'}`}>Fyzická osoba</button>
-                        <button type="button" onClick={() => { setCustomerType('company'); setIsNewCustomer(false); setSelectedCustomerId(''); }} className={`w-full py-2 px-4 rounded-md font-semibold text-sm transition-all ${customerType === 'company' ? 'bg-white shadow text-primary' : 'text-gray-600'}`}>Firma</button>
-                    </div>
-
-                    <div className="flex items-center space-x-4">
-                        <select value={selectedCustomerId} onChange={(e) => { setSelectedCustomerId(e.target.value); setIsNewCustomer(false); }} className="w-full p-2 border rounded-md" disabled={isNewCustomer}>
-                            <option value="">{customerType === 'person' ? 'Vyberte stávajícího zákazníka' : 'Vyberte stávající firmu'}</option>
-                            {customers.map(c => (
-                                <option key={c.id} value={c.id}>
-                                    {customerType === 'company' && c.companyName ? `${c.companyName} (${c.firstName} ${c.lastName})` : `${c.firstName} ${c.lastName} (${c.email})`}
-                                </option>
-                            ))}
-                        </select>
-                         <button type="button" onClick={() => { setIsNewCustomer(!isNewCustomer); setSelectedCustomerId(''); }} className={`py-2 px-4 rounded-md font-semibold whitespace-nowrap ${isNewCustomer ? 'bg-primary text-white' : 'bg-gray-200'}`}>{customerType === 'person' ? 'Nový zákazník' : 'Nová firma'}</button>
-                    </div>
-                    {renderNewCustomerForm()}
-                </section>
-                 {/* Date & Time Section */}
-                <section>
-                    <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4 border-b pb-2"><CalendarIcon className="mr-3 text-primary"/>Krok 2: Doba pronájmu</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Začátek pronájmu</label>
-                            <input type="datetime-local" value={startDate} onChange={e => { setStartDate(e.target.value); setSelectedVehicleId(''); }} className="w-full p-2 border rounded" required />
-                        </div>
-                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Délka pronájmu</label>
-                            <div className="flex flex-wrap gap-2 items-center">
-                                <button type="button" onClick={() => handleDurationChange('hours', 4)} className={`px-3 py-2 text-sm rounded-lg font-semibold transition-colors ${duration?.type === 'hours' && duration?.value === 4 ? 'bg-primary text-white' : 'bg-white border'}`}>4 hod</button>
-                                <button type="button" onClick={() => handleDurationChange('hours', 12)} className={`px-3 py-2 text-sm rounded-lg font-semibold transition-colors ${duration?.type === 'hours' && duration?.value === 12 ? 'bg-primary text-white' : 'bg-white border'}`}>12 hod</button>
-                                <button type="button" onClick={() => handleDurationChange('days', 1)} className={`px-3 py-2 text-sm rounded-lg font-semibold transition-colors ${duration?.type === 'days' && duration?.value === 1 ? 'bg-primary text-white' : 'bg-white border'}`}>1 den</button>
-                                <div className={`flex items-center space-x-2 border rounded-lg p-1 transition-colors ${duration?.type === 'days' && duration.value >= 2 ? 'border-primary ring-2 ring-primary/50' : 'border-gray-300'}`}>
-                                    <input 
-                                        type="number" min="2" max="30" 
-                                        value={duration?.type === 'days' && duration.value >= 2 ? duration.value : ''}
-                                        placeholder="2+"
-                                        onChange={e => {
-                                            const days = parseInt(e.target.value, 10);
-                                            if (days >= 2 && days <= 30) handleDurationChange('days', days);
-                                        }}
-                                        onFocus={() => { if (!(duration?.type === 'days' && duration.value >= 2)) handleDurationChange('days', 2); }}
-                                        className="w-16 p-1 border-none focus:ring-0 text-center font-semibold"
-                                    />
-                                    <label className="font-semibold pr-2 text-sm">dní</label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                     {endDate && (
-                        <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md flex items-center">
-                           <Clock className="w-5 h-5 mr-3 text-blue-600"/>
-                           <p className="text-sm text-blue-800">
-                                Konec pronájmu: <span className="font-bold">{new Date(endDate).toLocaleString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                           </p>
-                        </div>
-                    )}
-                </section>
-                {/* Vehicle Section */}
-                 <section>
-                    <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4 border-b pb-2"><Car className="mr-3 text-primary"/>Krok 3: Výběr vozidla</h2>
-                    {!startDate || !endDate ? <p className="text-gray-500 p-4 bg-gray-100 rounded-md">Nejprve vyberte dobu pronájmu pro zobrazení dostupných vozidel.</p> :
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {availableVehicles.length > 0 ? availableVehicles.map(v => (
-                                <div key={v.id} onClick={() => setSelectedVehicleId(v.id)} className={`border-2 rounded-lg p-3 cursor-pointer transition-all ${selectedVehicleId === v.id ? 'border-primary shadow-lg scale-105' : 'border-gray-200 hover:border-blue-300'}`}>
-                                    <img src={v.imageUrl} alt={v.name} className="w-full h-28 object-cover rounded-md mb-2"/>
-                                    <h3 className="font-semibold text-gray-800">{v.name}</h3>
-                                    <p className="text-sm text-gray-700 font-bold">{v.dailyRate.toLocaleString('cs-CZ')} Kč/den</p>
-                                </div>
-                            )) : <p className="col-span-full text-center text-red-600 p-4 bg-red-50 rounded-md">V tomto termínu nejsou dostupná žádná vozidla.</p>}
-                        </div>
-                    }
-                </section>
-                {/* Signature Section */}
-                <section>
-                     <h2 className="text-xl font-semibold text-gray-700 flex items-center mb-4 border-b pb-2"><Signature className="mr-3 text-primary"/>Krok 4: Podpis a dokončení</h2>
-                     <div className="grid md:grid-cols-2 gap-8 items-start">
-                         <div>
-                            <h3 className="font-semibold text-gray-600 mb-2">Podpis zákazníka / kontaktní osoby</h3>
-                            <SignaturePad ref={signaturePadRef} />
-                         </div>
-                         <div className="bg-blue-50 p-4 rounded-lg">
-                            <h3 className="font-semibold text-gray-800 mb-3">Rekapitulace</h3>
-                             <div className="space-y-2 text-sm">
-                                <p className="flex justify-between"><span>Vozidlo:</span> <span className="font-bold text-right">{selectedVehicle?.name || 'Nevybráno'}</span></p>
-                                <p className="flex justify-between"><span>SPZ:</span> <span className="font-bold">{selectedVehicle?.licensePlate || '-'}</span></p>
-                                <p className="flex justify-between border-t pt-2 mt-2"><span>Cena celkem:</span> <span className="text-lg font-bold text-primary">{totalPrice.toLocaleString('cs-CZ')} Kč</span></p>
-                            </div>
-                         </div>
-                     </div>
-                </section>
-                 <div className="flex justify-end pt-6 border-t">
-                    <button type="submit" className="py-3 px-8 rounded-lg bg-secondary text-dark-text font-bold hover:bg-secondary-hover text-lg flex items-center" disabled={isSubmitting}>
-                        {isSubmitting ? <><Loader className="w-5 h-5 mr-2 animate-spin"/> Zpracovávám...</> : <><Send className="w-5 h-5 mr-2"/> Vytvořit rezervaci a odeslat</>}
-                    </button>
+        <div className="flex flex-col h-full">
+            <ReservationFormModal
+                isOpen={isModalOpen}
+                onClose={handleCloseModal}
+                onSave={handleSave}
+                reservationData={modalData}
+                vehicles={vehicles}
+                customers={customers}
+            />
+            {/* Header */}
+            <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center bg-white shadow-sm rounded-lg p-1">
+                    <button onClick={handlePrevMonth} className="p-2 rounded-md hover:bg-gray-100"><ChevronLeft /></button>
+                    <span className="w-48 text-center font-bold text-lg">
+                        {new Date(year, month).toLocaleString('cs-CZ', { month: 'long', year: 'numeric' })}
+                    </span>
+                    <button onClick={handleNextMonth} className="p-2 rounded-md hover:bg-gray-100"><ChevronRight /></button>
                 </div>
-            </form>
+                <button onClick={() => openModalForNew('')} className="bg-secondary text-dark-text font-bold py-2 px-4 rounded-lg hover:bg-secondary-hover transition-colors flex items-center">
+                    <Plus className="w-5 h-5 mr-2" />
+                    Nová rezervace
+                </button>
+            </div>
+
+            {/* Calendar */}
+            <div className="flex-grow bg-white p-4 rounded-lg shadow-md overflow-auto">
+                <div className="grid gap-px" style={{ gridTemplateColumns: `180px repeat(${daysInMonth}, minmax(40px, 1fr))` }}>
+                    {/* Header: Vehicle Name */}
+                    <div className="sticky top-0 left-0 z-20 bg-gray-100 p-2 font-semibold border-b border-r">Vozidlo</div>
+                    {/* Header: Days */}
+                    {Array.from({ length: daysInMonth }, (_, i) => {
+                         const day = i + 1;
+                         const d = new Date(year, month, day);
+                         const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                         return (
+                            <div key={i} className={`sticky top-0 z-10 p-2 text-center font-semibold border-b ${isWeekend ? 'bg-gray-200' : 'bg-gray-100'}`}>
+                                {day}
+                                <span className="block text-xs font-normal text-gray-500">{d.toLocaleString('cs-CZ', { weekday: 'short' })}</span>
+                            </div>
+                         )
+                    })}
+                    
+                    {/* Rows: Vehicles and Reservations */}
+                    {vehicles.map((vehicle, vehicleIndex) => (
+                        <React.Fragment key={vehicle.id}>
+                            <div className="sticky left-0 z-10 p-2 font-medium bg-white border-r flex items-center" style={{ gridRow: vehicleIndex + 2 }}>
+                                {vehicle.name}
+                            </div>
+                            {/* Empty cells for clicking */}
+                            {Array.from({ length: daysInMonth }, (_, dayIndex) => (
+                                <div key={dayIndex} className="border-b border-r hover:bg-blue-50 cursor-pointer" style={{ gridRow: vehicleIndex + 2, gridColumn: dayIndex + 2 }} onClick={() => openModalForNew(vehicle.id, dayIndex + 1)}></div>
+                            ))}
+                            {/* Reservations for this vehicle */}
+                            {reservations
+                                .filter(r => r.vehicleId === vehicle.id)
+                                .map(r => {
+                                    const startDate = new Date(r.startDate);
+                                    const endDate = new Date(r.endDate);
+
+                                    // Determine the start and end column for the reservation
+                                    let startCol = 1;
+                                    if (startDate.getFullYear() === year && startDate.getMonth() === month) {
+                                        startCol = startDate.getDate();
+                                    } else if (startDate < new Date(year, month, 1)) {
+                                        startCol = 1;
+                                    } else {
+                                        return null; // Reservation is outside this month's view
+                                    }
+                                    
+                                    let endCol = daysInMonth;
+                                    if (endDate.getFullYear() === year && endDate.getMonth() === month) {
+                                        endCol = endDate.getDate();
+                                    } else if (endDate > new Date(year, month, daysInMonth)) {
+                                       endCol = daysInMonth;
+                                    } else {
+                                        return null;
+                                    }
+                                    
+                                    const duration = endCol - startCol + 1;
+                                    if (duration < 0) return null;
+
+                                    return (
+                                        <div
+                                            key={r.id}
+                                            onClick={() => openModalForEdit(r)}
+                                            className={`absolute h-12 p-2 rounded-lg text-white font-semibold text-sm overflow-hidden whitespace-nowrap cursor-pointer hover:opacity-80 transition-opacity ${statusColors[r.status]}`}
+                                            style={{
+                                                top: `${(vehicleIndex * 3.5) + 3.5}rem`, // Adjust based on row height
+                                                left: `calc(180px + ${(startCol - 1) * (100 / daysInMonth)}%)`,
+                                                width: `calc(${duration * (100 / daysInMonth)}% - 4px)`,
+                                                transform: 'translateY(4px)'
+                                            }}
+                                        >
+                                           {r.customer ? `${r.customer.firstName} ${r.customer.lastName}` : 'Čeká na zákazníka'}
+                                        </div>
+                                    );
+                                })
+                            }
+                        </React.Fragment>
+                    ))}
+                </div>
+            </div>
         </div>
     );
 };
