@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { getCustomers } from '../services/api';
 import type { Customer } from '../types';
-import { Plus, User, Mail, Phone, Edit, MapPin, Search } from 'lucide-react';
+import { Plus, User, Mail, Phone, Edit, MapPin, Search, Building } from 'lucide-react';
 import CustomerFormModal from '../components/CustomerFormModal';
 
 const CustomerCard: React.FC<{ customer: Customer; onEdit: (customer: Customer) => void }> = ({ customer, onEdit }) => {
@@ -14,6 +14,9 @@ const CustomerCard: React.FC<{ customer: Customer; onEdit: (customer: Customer) 
                     </div>
                     <div>
                         <h3 className="text-lg font-bold text-gray-800">{customer.firstName} {customer.lastName}</h3>
+                        {customer.companyName && (
+                            <p className="flex items-center text-sm text-gray-500"><Building className="w-4 h-4 mr-1.5" />{customer.companyName}</p>
+                        )}
                     </div>
                 </div>
                 <div className="space-y-2 text-sm">
@@ -56,12 +59,13 @@ const Customers: React.FC = () => {
     
     const filteredCustomers = useMemo(() => {
         return customers.filter(customer => {
-            const fullName = `${customer.firstName} ${customer.lastName}`;
-            const term = searchTerm.toLowerCase();
-            return term === '' ||
-                fullName.toLowerCase().includes(term) ||
-                customer.email.toLowerCase().includes(term) ||
-                customer.phone.includes(term);
+            const searchLower = searchTerm.toLowerCase();
+            const fullName = `${customer.firstName} ${customer.lastName}`.toLowerCase();
+            return (
+                fullName.includes(searchLower) ||
+                customer.email.toLowerCase().includes(searchLower) ||
+                customer.companyName?.toLowerCase().includes(searchLower)
+            );
         });
     }, [customers, searchTerm]);
     
@@ -91,35 +95,36 @@ const Customers: React.FC = () => {
                 onSaveSuccess={handleSaveSuccess} 
                 customer={selectedCustomer} 
              />
-            <div className="flex justify-between items-center mb-6">
-                <div className="relative w-full max-w-lg">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                    <input
-                        type="text"
-                        placeholder="Hledat podle jména, e-mailu nebo telefonu..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full p-3 pl-12 border rounded-lg shadow-sm"
-                    />
+            <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                <h1 className="text-3xl font-bold text-gray-800">Zákazníci</h1>
+                <div className="flex items-center gap-4 w-full md:w-auto">
+                    <div className="relative w-full md:w-64">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                        <input
+                            type="text"
+                            placeholder="Hledat zákazníka..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full p-2 pl-10 border rounded-lg"
+                        />
+                    </div>
+                    <button onClick={() => handleOpenModal()} className="bg-secondary text-dark-text font-bold py-2 px-4 rounded-lg hover:bg-secondary-hover transition-colors flex items-center flex-shrink-0">
+                        <Plus className="w-5 h-5 mr-2" />
+                        Přidat
+                    </button>
                 </div>
-                <button onClick={() => handleOpenModal()} className="bg-secondary text-dark-text font-bold py-2 px-4 rounded-lg hover:bg-secondary-hover transition-colors flex items-center whitespace-nowrap">
-                    <Plus className="w-5 h-5 mr-2" />
-                    Přidat zákazníka
-                </button>
             </div>
-
-            {filteredCustomers.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                    {filteredCustomers.map(customer => (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {filteredCustomers.length > 0 ? (
+                    filteredCustomers.map(customer => (
                         <CustomerCard key={customer.id} customer={customer} onEdit={handleOpenModal} />
-                    ))}
-                </div>
-            ) : (
-                 <div className="text-center py-16 bg-white rounded-lg shadow-md">
-                    <h3 className="text-xl font-semibold text-gray-700">Nebyly nalezeny žádné výsledky</h3>
-                    <p className="text-gray-500 mt-2">Zkuste zkontrolovat zadaný text.</p>
-                </div>
-            )}
+                    ))
+                ) : (
+                    <div className="col-span-full text-center py-10 text-gray-500">
+                        <p>Žádní zákazníci neodpovídají vašemu vyhledávání.</p>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };

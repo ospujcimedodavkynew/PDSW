@@ -129,7 +129,8 @@ const Financials: React.FC = () => {
                 onClose={() => setIsExpenseModalOpen(false)}
                 onSave={fetchData}
             />
-            <div className="flex justify-end items-center">
+            <div className="flex justify-between items-center">
+                 <h1 className="text-3xl font-bold text-gray-800">Finance</h1>
                  <button onClick={() => setIsExpenseModalOpen(true)} className="bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 transition-colors flex items-center">
                     <Plus className="w-5 h-5 mr-2" />
                     Přidat výdaj

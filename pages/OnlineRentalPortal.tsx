@@ -1,146 +1,233 @@
-import React, { useState, useEffect } from 'react';
-import { getVehicles, createPendingReservation } from '../services/api';
-import { Vehicle } from '../types';
-import { Loader, Mail, Send, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect, useMemo, FormEvent } from 'react';
+import { getVehicles, submitOnlineReservation, fetchCompanyFromAres } from '../services/api';
+import { Vehicle, Customer, Reservation } from '../types';
+import { Loader, ArrowRight, ArrowLeft, CheckCircle, Search } from 'lucide-react';
 
 const OnlineRentalPortal: React.FC = () => {
+    const [step, setStep] = useState(1);
     const [vehicles, setVehicles] = useState<Vehicle[]>([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
 
-    const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
+    // Step 1: Date selection
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
-    const [customerEmail, setCustomerEmail] = useState('');
+
+    // Step 2: Vehicle selection
+    const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
+    const [totalPrice, setTotalPrice] = useState(0);
+
+    // Step 3: Customer details
+    const [customerData, setCustomerData] = useState<Omit<Customer, 'id' | 'driverLicenseImageUrl'>>({
+        firstName: '', lastName: '', email: '', phone: '', driverLicenseNumber: '', address: '',
+        companyName: '', companyId: '', vatId: ''
+    });
+    const [driverLicenseFile, setDriverLicenseFile] = useState<File | null>(null);
+    const [isCompany, setIsCompany] = useState(false);
+    const [aresLoading, setAresLoading] = useState(false);
+    const [aresError, setAresError] = useState('');
+
+    // Step 4: Confirmation
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [isSubmitted, setIsSubmitted] = useState(false);
+    const [submissionResult, setSubmissionResult] = useState<{ reservation: Reservation; customer: Customer; contractText: string } | null>(null);
+    const [error, setError] = useState('');
 
     useEffect(() => {
-        const fetchVehicles = async () => {
-            setLoading(true);
+        const fetchInitialData = async () => {
             try {
-                // In a real scenario, we'd filter by availability for a selected date range.
-                // For this portal, we'll just show all available vehicles.
-                const allVehicles = await getVehicles();
-                setVehicles(allVehicles.filter(v => v.status === 'available'));
+                const vehicleData = await getVehicles();
+                setVehicles(vehicleData.filter(v => v.status === 'available'));
             } catch (err) {
-                setError('Nepodařilo se načíst dostupná vozidla.');
+                setError('Nepodařilo se načíst dostupná vozidla. Zkuste to prosím později.');
             } finally {
                 setLoading(false);
             }
         };
-        fetchVehicles();
+        fetchInitialData();
     }, []);
+
+    const availableVehicles = useMemo(() => {
+        // In a real app, this would check against existing reservations for the selected dates.
+        // For this implementation, we assume all 'available' vehicles are bookable.
+        return vehicles;
+    }, [vehicles, startDate, endDate]);
     
-    const handleSelectVehicle = (vehicle: Vehicle) => {
-        setSelectedVehicle(vehicle);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+    const handleDateSubmit = (e: FormEvent) => {
+        e.preventDefault();
+        if (!startDate || !endDate || new Date(endDate) <= new Date(startDate)) {
+            alert('Zadejte prosím platný termín pronájmu.');
+            return;
+        }
+        setStep(2);
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!selectedVehicle || !startDate || !endDate || !customerEmail) {
-            alert("Prosím, vyplňte všechna pole.");
-            return;
-        }
-        if (new Date(endDate) <= new Date(startDate)) {
-            alert('Datum konce musí být po datu začátku.');
-            return;
-        }
+    const handleVehicleSelect = (vehicle: Vehicle) => {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        const durationHours = (end.getTime() - start.getTime()) / (1000 * 3600);
+        let price = 0;
+        if (durationHours <= 4) price = vehicle.rate4h;
+        else if (durationHours <= 12) price = vehicle.rate12h;
+        else price = Math.ceil(durationHours / 24) * vehicle.dailyRate;
 
-        setIsSubmitting(true);
+        setSelectedVehicle(vehicle);
+        setTotalPrice(price);
+        setStep(3);
+    };
+
+    const handleAresSearch = async () => {
+        if (!customerData.companyId) return;
+        setAresLoading(true);
+        setAresError('');
         try {
-             const reservation = await createPendingReservation(selectedVehicle.id, new Date(startDate), new Date(endDate));
-             const link = `${window.location.origin}${window.location.pathname}#/portal?token=${reservation.portalToken}`;
-             
-            // Here, we simulate sending the link. A real backend would email the customer.
-            // For this demo, we assume the backend handles the email and we just show a success message.
-            console.log(`Reservation created for ${customerEmail}. Link: ${link}`);
-            
-            setIsSubmitted(true);
+            const companyInfo = await fetchCompanyFromAres(customerData.companyId);
+            setCustomerData(prev => ({ ...prev, ...companyInfo }));
         } catch (err) {
-            alert("Došlo k chybě při vytváření vaší poptávky.");
+            setAresError(err instanceof Error ? err.message : 'Neznámá chyba.');
+        } finally {
+            setAresLoading(false);
+        }
+    };
+    
+    const handleCustomerSubmit = async (e: FormEvent) => {
+        e.preventDefault();
+        if (!driverLicenseFile) {
+            alert('Nahrajte prosím fotografii řidičského průkazu.');
+            return;
+        }
+        
+        setIsSubmitting(true);
+        setError('');
+        try {
+            if(!selectedVehicle) {
+                throw new Error("Nebylo vybráno žádné vozidlo.");
+            }
+            const reservationData = { vehicleId: selectedVehicle.id, startDate: new Date(startDate), endDate: new Date(endDate), totalPrice };
+            const customerDetails = { ...customerData };
+            if (!isCompany) {
+                customerDetails.companyName = undefined;
+                customerDetails.companyId = undefined;
+                customerDetails.vatId = undefined;
+            }
+            const result = await submitOnlineReservation(reservationData, customerDetails, driverLicenseFile, selectedVehicle);
+            setSubmissionResult(result);
+            setStep(4);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Odeslání rezervace se nezdařilo.');
         } finally {
             setIsSubmitting(false);
         }
     };
 
-    if (loading) {
-        return <div className="min-h-screen flex items-center justify-center bg-gray-100"><Loader className="w-10 h-10 animate-spin text-primary"/></div>;
-    }
-
-    if (error) {
-         return <div className="min-h-screen flex items-center justify-center bg-gray-100 text-red-600 font-semibold">{error}</div>;
-    }
-    
-    if (isSubmitted) {
-        return (
-            <div className="min-h-screen flex flex-col items-center justify-center bg-green-50 text-center p-4">
-                 <CheckCircle className="w-16 h-16 text-green-600 mb-4" />
-                <h1 className="text-3xl font-bold text-green-800">Poptávka odeslána!</h1>
-                <p className="mt-2 text-lg text-gray-700">Na vámi zadaný email (<span className="font-semibold">{customerEmail}</span>) jsme odeslali odkaz pro dokončení rezervace.</p>
-                <p className="mt-1 text-gray-600">Prosím, zkontrolujte si svou e-mailovou schránku.</p>
-            </div>
-        )
+    const renderStep = () => {
+        switch(step) {
+            case 1: // Date Selection
+                return (
+                    <form onSubmit={handleDateSubmit} className="space-y-4">
+                        <h2 className="text-2xl font-bold text-center">Zvolte termín pronájmu</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full p-3 border rounded" required />
+                            <input type="datetime-local" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full p-3 border rounded" required />
+                        </div>
+                        <button type="submit" className="w-full bg-primary text-white font-bold py-3 px-4 rounded-lg hover:bg-primary-hover flex items-center justify-center">
+                            Najít vozidla <ArrowRight className="ml-2 w-5 h-5"/>
+                        </button>
+                    </form>
+                );
+            case 2: // Vehicle Selection
+                return (
+                    <div>
+                        <button onClick={() => setStep(1)} className="mb-4 text-primary hover:underline flex items-center"><ArrowLeft className="mr-1 w-4 h-4"/> Zpět na výběr termínu</button>
+                        <h2 className="text-2xl font-bold text-center mb-4">Vyberte si vozidlo</h2>
+                        <div className="space-y-4">
+                            {availableVehicles.map(v => (
+                                <div key={v.id} className="border rounded-lg p-4 flex flex-col md:flex-row gap-4 items-center">
+                                    <img src={v.imageUrl} alt={v.name} className="w-full md:w-48 h-32 object-cover rounded"/>
+                                    <div className="flex-grow">
+                                        <h3 className="text-xl font-bold">{v.name}</h3>
+                                        <p className="text-gray-600">{v.description}</p>
+                                        <p className="text-sm text-gray-500 mt-1">{v.features.join(', ')}</p>
+                                    </div>
+                                    <div className="text-center md:text-right">
+                                        <button onClick={() => handleVehicleSelect(v)} className="bg-secondary text-dark-text font-bold py-2 px-4 rounded-lg hover:bg-secondary-hover">
+                                            Rezervovat
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            case 3: // Customer Details
+                return (
+                    <div>
+                        <button onClick={() => setStep(2)} className="mb-4 text-primary hover:underline flex items-center"><ArrowLeft className="mr-1 w-4 h-4"/> Zpět na výběr vozidla</button>
+                        <h2 className="text-2xl font-bold text-center mb-4">Vyplňte Vaše údaje</h2>
+                        <div className="text-center mb-4 bg-blue-50 p-3 rounded-lg">
+                            <p>Rezervujete <span className="font-bold">{selectedVehicle?.name}</span> v ceně <span className="font-bold">{totalPrice.toLocaleString('cs-CZ')} Kč</span></p>
+                        </div>
+                        <form onSubmit={handleCustomerSubmit} className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <input type="text" placeholder="Jméno" value={customerData.firstName} onChange={e => setCustomerData({ ...customerData, firstName: e.target.value })} className="w-full p-2 border rounded" required />
+                                <input type="text" placeholder="Příjmení" value={customerData.lastName} onChange={e => setCustomerData({ ...customerData, lastName: e.target.value })} className="w-full p-2 border rounded" required />
+                            </div>
+                            <input type="email" placeholder="Email" value={customerData.email} onChange={e => setCustomerData({ ...customerData, email: e.target.value })} className="w-full p-2 border rounded" required />
+                            <input type="text" placeholder="Adresa" value={customerData.address} onChange={e => setCustomerData({ ...customerData, address: e.target.value })} className="w-full p-2 border rounded" required />
+                            <div className="grid grid-cols-2 gap-4">
+                                <input type="tel" placeholder="Telefon" value={customerData.phone} onChange={e => setCustomerData({ ...customerData, phone: e.target.value })} className="w-full p-2 border rounded" required />
+                                <input type="text" placeholder="Číslo ŘP" value={customerData.driverLicenseNumber} onChange={e => setCustomerData({ ...customerData, driverLicenseNumber: e.target.value })} className="w-full p-2 border rounded" required />
+                            </div>
+                            <label className="flex items-center"><input type="checkbox" checked={isCompany} onChange={e => setIsCompany(e.target.checked)} className="mr-2"/> Nakupuji na firmu</label>
+                            {isCompany && (
+                                <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
+                                    <div className="flex items-end gap-2">
+                                        <div className="flex-grow">
+                                            <label className="text-sm font-medium">IČO</label>
+                                            <input type="text" placeholder="IČO" value={customerData.companyId || ''} onChange={e => setCustomerData({ ...customerData, companyId: e.target.value })} className="w-full p-2 border rounded" />
+                                        </div>
+                                        <button type="button" onClick={handleAresSearch} disabled={aresLoading} className="py-2 px-4 rounded-lg bg-gray-200 hover:bg-gray-300 flex items-center">
+                                            {aresLoading ? <Loader className="w-4 h-4 animate-spin"/> : <Search className="w-4 h-4"/>}
+                                        </button>
+                                    </div>
+                                    {aresError && <p className="text-red-500 text-sm">{aresError}</p>}
+                                    <input type="text" placeholder="Název firmy" value={customerData.companyName || ''} onChange={e => setCustomerData({ ...customerData, companyName: e.target.value })} className="w-full p-2 border rounded" />
+                                    <input type="text" placeholder="DIČ" value={customerData.vatId || ''} onChange={e => setCustomerData({ ...customerData, vatId: e.target.value })} className="w-full p-2 border rounded" />
+                                </div>
+                            )}
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Fotografie řidičského průkazu</label>
+                                <input type="file" accept="image/*" onChange={e => setDriverLicenseFile(e.target.files ? e.target.files[0] : null)} className="w-full p-2 border rounded" required/>
+                            </div>
+                            <button type="submit" disabled={isSubmitting} className="w-full bg-primary text-white font-bold py-3 px-4 rounded-lg hover:bg-primary-hover">
+                                {isSubmitting ? 'Odesílám...' : 'Odeslat a dokončit rezervaci'}
+                            </button>
+                        </form>
+                    </div>
+                );
+            case 4: // Confirmation
+                return (
+                    <div className="text-center">
+                        <CheckCircle className="w-16 h-16 text-green-600 mx-auto mb-4"/>
+                        <h2 className="text-3xl font-bold text-green-800">Rezervace úspěšná!</h2>
+                        <p className="mt-2 text-lg">Děkujeme, Vaše rezervace byla přijata. V nejbližší době Vám zašleme potvrzení na e-mail.</p>
+                        {submissionResult && (
+                             <div className="mt-6 p-4 bg-gray-100 rounded-lg text-left">
+                                <h3 className="font-bold">Rekapitulace:</h3>
+                                <p><strong>Zákazník:</strong> {submissionResult.customer.firstName} {submissionResult.customer.lastName}</p>
+                                <p><strong>Termín:</strong> od {new Date(submissionResult.reservation.startDate).toLocaleString('cs-CZ')} do {new Date(submissionResult.reservation.endDate).toLocaleString('cs-CZ')}</p>
+                            </div>
+                        )}
+                    </div>
+                );
+        }
     }
 
     return (
-        <div className="min-h-screen bg-gray-100 p-4 sm:p-8">
-            <div className="max-w-6xl mx-auto">
-                <header className="text-center mb-8">
-                    <h1 className="text-4xl font-bold text-primary">Van Rental Pro</h1>
-                    <p className="text-gray-600 mt-2">Rezervujte si dodávku online snadno a rychle</p>
-                </header>
-                
-                {selectedVehicle && (
-                    <section className="bg-white p-6 rounded-lg shadow-lg mb-8 sticky top-4 z-10">
-                        <h2 className="text-2xl font-bold text-gray-800 mb-4">Vaše poptávka na <span className="text-primary">{selectedVehicle.name}</span></h2>
-                        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">Od</label>
-                                <input type="datetime-local" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full p-2 border rounded-md mt-1" required/>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">Do</label>
-                                <input type="datetime-local" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full p-2 border rounded-md mt-1" required/>
-                            </div>
-                            <div className="md:col-span-1">
-                                <label className="block text-sm font-medium text-gray-700">Váš email</label>
-                                <input type="email" placeholder="vas@email.cz" value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} className="w-full p-2 border rounded-md mt-1" required/>
-                            </div>
-                            <button type="submit" disabled={isSubmitting} className="w-full bg-secondary text-dark-text font-bold py-2 px-4 rounded-lg hover:bg-secondary-hover transition-colors flex items-center justify-center text-lg disabled:bg-gray-400">
-                                <Send className="w-5 h-5 mr-2" />
-                                {isSubmitting ? 'Odesílám...' : 'Odeslat poptávku'}
-                            </button>
-                        </form>
-                    </section>
-                )}
-
-                <main>
-                    <h2 className="text-2xl font-semibold text-gray-700 mb-6">{selectedVehicle ? 'Vyberte si jiné vozidlo' : 'Krok 1: Vyberte si vozidlo'}</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {vehicles.map(vehicle => (
-                            <div key={vehicle.id} className="bg-white rounded-lg shadow-md overflow-hidden flex flex-col">
-                                <img src={vehicle.imageUrl} alt={vehicle.name} className="w-full h-48 object-cover"/>
-                                <div className="p-4 flex-grow">
-                                    <h3 className="text-xl font-bold text-gray-800">{vehicle.name}</h3>
-                                    <p className="text-sm text-gray-500">{vehicle.make} {vehicle.model} ({vehicle.year})</p>
-                                    {vehicle.description && <p className="text-gray-600 mt-2 text-sm">{vehicle.description}</p>}
-                                </div>
-                                <div className="p-4 bg-gray-50 border-t">
-                                     <div className="text-sm space-y-1 mb-3">
-                                        <p className="flex justify-between"><span>4 hodiny:</span> <span className="font-bold text-primary">{vehicle.rate4h.toLocaleString('cs-CZ')} Kč</span></p>
-                                        <p className="flex justify-between"><span>12 hodin:</span> <span className="font-bold text-primary">{vehicle.rate12h.toLocaleString('cs-CZ')} Kč</span></p>
-                                        <p className="flex justify-between"><span>1+ den:</span> <span className="font-bold text-primary">{vehicle.dailyRate.toLocaleString('cs-CZ')} Kč/den</span></p>
-                                    </div>
-                                    <button onClick={() => handleSelectVehicle(vehicle)} className="w-full bg-primary text-white py-2 rounded-lg hover:bg-primary-hover transition-colors font-semibold">
-                                        Vybrat toto vozidlo
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </main>
+        <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+            <div className="w-full max-w-2xl mx-auto">
+                <h1 className="text-4xl font-bold text-primary text-center mb-8">Online rezervace</h1>
+                <div className="bg-white rounded-lg shadow-xl p-8">
+                    {loading ? <div className="text-center"><Loader className="w-8 h-8 animate-spin mx-auto text-primary"/></div> : error ? <p className="text-red-600 text-center">{error}</p> : renderStep()}
+                </div>
             </div>
         </div>
     );

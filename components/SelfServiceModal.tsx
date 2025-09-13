@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Mail, Send, Calendar } from 'lucide-react';
+import { X, Mail, Send } from 'lucide-react';
 import { Vehicle } from '../types';
 import { createPendingReservation } from '../services/api';
 
@@ -48,7 +48,9 @@ const SelfServiceModal: React.FC<SelfServiceModalProps> = ({ isOpen, onClose, av
         try {
             const reservation = await createPendingReservation(selectedVehicleId, new Date(startDate), new Date(endDate));
             const selectedVehicle = availableVehicles.find(v => v.id === selectedVehicleId);
-            const link = `${window.location.origin}${window.location.pathname}?portal=${reservation.portalToken}`;
+            
+            // FIX: Correctly generate the hash-based URL
+            const link = `${window.location.origin}${window.location.pathname}#/portal?token=${reservation.portalToken}`;
             
             const subject = encodeURIComponent(`Dokončení rezervace vozidla: ${selectedVehicle?.name}`);
             const body = encodeURIComponent(
@@ -62,7 +64,7 @@ ${link}
 Tento odkaz je unikátní a platný pouze pro Vaši rezervaci.
 
 S pozdravem,
-Tým PujcimeDodavky.cz`
+Váš tým Van Rental Pro`
             );
 
             // Open email client
