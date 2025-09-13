@@ -1,7 +1,9 @@
-
 import React from 'react';
+import {
+    LayoutDashboard, Calendar, Car, Users, DollarSign, FileText,
+    BarChart, Settings, LogOut, FilePlus, List
+} from 'lucide-react';
 import { Page } from '../types';
-import { LayoutDashboard, Car, Users, Calendar as CalendarIcon, FileText, DollarSign, BarChart, LogOut, Receipt, PlusCircle, Settings } from 'lucide-react';
 import { signOut } from '../services/api';
 
 interface SidebarProps {
@@ -9,44 +11,70 @@ interface SidebarProps {
     setCurrentPage: (page: Page) => void;
 }
 
-const NavItem: React.FC<{ icon: React.ReactNode; label: string; isActive: boolean; onClick: () => void; }> = ({ icon, label, isActive, onClick }) => (
-    <button onClick={onClick} className={`flex items-center w-full px-4 py-3 text-left transition-colors duration-200 ${isActive ? 'bg-primary text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
-        {icon}
-        <span className="ml-4 font-medium">{label}</span>
-    </button>
-);
+const NavItem: React.FC<{
+    icon: React.ReactNode;
+    label: string;
+    page: Page;
+    currentPage: Page;
+    setCurrentPage: (page: Page) => void;
+}> = ({ icon, label, page, currentPage, setCurrentPage }) => {
+    const isActive = currentPage === page;
+    return (
+        <button
+            onClick={() => setCurrentPage(page)}
+            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${isActive
+                ? 'bg-primary text-white shadow-lg'
+                : 'text-gray-600 hover:bg-primary-hover hover:text-white'
+                }`}
+        >
+            {icon}
+            <span className="font-medium">{label}</span>
+        </button>
+    );
+};
+
 
 const Sidebar: React.FC<SidebarProps> = ({ currentPage, setCurrentPage }) => {
-    
     const handleLogout = async () => {
-        if (window.confirm('Opravdu se chcete odhlásit?')) {
+        try {
             await signOut();
-            // App component will handle redirect on auth state change
+            // Auth state change in App.tsx will handle redirect
+        } catch (error) {
+            console.error("Logout failed:", error);
+            alert('Odhlášení se nezdařilo.');
         }
     };
 
+    const navItems = [
+        { icon: <LayoutDashboard />, label: "Přehled", page: Page.DASHBOARD },
+        { icon: <Calendar />, label: "Kalendář", page: Page.CALENDAR },
+        { icon: <FilePlus />, label: "Nová rezervace", page: Page.RESERVATIONS },
+        { icon: <List />, label: "Správa rezervací", page: Page.MANAGE_RESERVATIONS },
+        { icon: <Car />, label: "Vozidla", page: Page.VEHICLES },
+        { icon: <Users />, label: "Zákazníci", page: Page.CUSTOMERS },
+        { icon: <DollarSign />, label: "Finance", page: Page.FINANCIALS },
+        { icon: <FileText />, label: "Smlouvy", page: Page.CONTRACTS },
+        { icon: <BarChart />, label: "Reporty", page: Page.REPORTS },
+        { icon: <Settings />, label: "Nastavení", page: Page.SETTINGS },
+    ];
+
     return (
-        <div className="flex flex-col w-64 bg-white shadow-lg h-screen">
-            <div className="flex items-center justify-center h-20 border-b">
-                <h1 className="text-2xl font-bold text-primary">Van Rental Pro</h1>
+        <div className="w-64 bg-white p-4 flex flex-col shadow-lg">
+            <div className="text-2xl font-bold text-primary mb-8 text-center">
+                Van Rental Pro
             </div>
-            <nav className="flex-grow mt-5 space-y-1">
-                <NavItem icon={<LayoutDashboard />} label="Přehled" isActive={currentPage === Page.DASHBOARD} onClick={() => setCurrentPage(Page.DASHBOARD)} />
-                <NavItem icon={<Car />} label="Vozový park" isActive={currentPage === Page.VEHICLES} onClick={() => setCurrentPage(Page.VEHICLES)} />
-                <NavItem icon={<Users />} label="Zákazníci" isActive={currentPage === Page.CUSTOMERS} onClick={() => setCurrentPage(Page.CUSTOMERS)} />
-                <NavItem icon={<PlusCircle />} label="Nová rezervace" isActive={currentPage === Page.RESERVATIONS} onClick={() => setCurrentPage(Page.RESERVATIONS)} />
-                <NavItem icon={<FileText />} label="Správa rezervací" isActive={currentPage === Page.MANAGE_RESERVATIONS} onClick={() => setCurrentPage(Page.MANAGE_RESERVATIONS)} />
-                <NavItem icon={<CalendarIcon />} label="Kalendář" isActive={currentPage === Page.CALENDAR} onClick={() => setCurrentPage(Page.CALENDAR)} />
-                <NavItem icon={<Receipt />} label="Faktury" isActive={currentPage === Page.INVOICES} onClick={() => setCurrentPage(Page.INVOICES)} />
-                <NavItem icon={<DollarSign />} label="Finance" isActive={currentPage === Page.FINANCIALS} onClick={() => setCurrentPage(Page.FINANCIALS)} />
-                <NavItem icon={<FileText />} label="Smlouvy" isActive={currentPage === Page.CONTRACTS} onClick={() => setCurrentPage(Page.CONTRACTS)} />
-                <NavItem icon={<BarChart />} label="Reporty" isActive={currentPage === Page.REPORTS} onClick={() => setCurrentPage(Page.REPORTS)} />
+            <nav className="flex-grow space-y-2">
+                {navItems.map(item => (
+                    <NavItem key={item.page} {...item} currentPage={currentPage} setCurrentPage={setCurrentPage} />
+                ))}
             </nav>
-            <div className="p-4 border-t">
-                 <NavItem icon={<Settings />} label="Nastavení" isActive={currentPage === Page.SETTINGS} onClick={() => setCurrentPage(Page.SETTINGS)} />
-                <button onClick={handleLogout} className="flex items-center w-full px-4 py-3 mt-2 text-left text-gray-600 hover:bg-gray-100 rounded-md">
+            <div className="mt-auto">
+                <button
+                    onClick={handleLogout}
+                    className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-gray-600 hover:bg-red-500 hover:text-white transition-colors"
+                >
                     <LogOut />
-                    <span className="ml-4 font-medium">Odhlásit se</span>
+                    <span className="font-medium">Odhlásit se</span>
                 </button>
             </div>
         </div>
